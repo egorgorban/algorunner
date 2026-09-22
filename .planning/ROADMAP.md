@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 1: Foundation & Task Lifecycle Skeleton
-**Goal**: A user can submit a problem and observe it move through the task lifecycle end-to-end on a real deployed stack, even before real AI processing exists
+**Goal**: As a user, I want to submit a problem and observe it move through the task lifecycle end-to-end on a real deployed stack, even before real AI processing exists, so that every later phase has a trustworthy infrastructure foundation to build on
 **Mode**: mvp
 **Depends on**: Nothing (first phase)
 **Requirements**: INTAKE-01, ORCH-02, API-01, API-02, QUEUE-01, DATA-01, INFRA-01, INFRA-02
@@ -29,7 +29,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. A user can POST a problem submission (text + optional examples) to `POST /api/v1/tasks` and immediately receives `202 Accepted` with a `task_id` and `status: queued`
   3. The submitted task is enqueued via taskiq + Redis, picked up by a worker, and its status is visible via `GET /api/v1/tasks/{id}` with PostgreSQL as the single source of truth for that status
   4. All data exchanged between API and worker is validated by Pydantic schemas, inside a single `uv`-managed package with clear modular structure (agents/, tools/, api/, worker/, schemas/)
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 01-01-PLAN.md — Task lifecycle core (contracts, data layer, worker, API) wired end-to-end, then containerized as the full 5-service Docker Compose stack
+- [ ] 01-02-PLAN.md — LangGraph stub graph checkpointed to Postgres (D-12/D-13 smoke test), validation/error-state hardening, and a final full-stack verification
 
 ### Phase 2: Verified Single-Solution Core Pipeline
 **Goal**: A submitted problem is actually analyzed and solved by the AI pipeline, producing one algorithm approach whose Python and Go code are proven correct by real execution, with clarification and correction handled automatically
@@ -75,7 +78,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Task Lifecycle Skeleton | 0/TBD | Not started | - |
+| 1. Foundation & Task Lifecycle Skeleton | 0/2 | Not started | - |
 | 2. Verified Single-Solution Core Pipeline | 0/TBD | Not started | - |
 | 3. Multi-Approach Editorial & Persistence | 0/TBD | Not started | - |
 | 4. Realtime Streaming, Frontend & Documentation | 0/TBD | Not started | - |
