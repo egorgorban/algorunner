@@ -7,7 +7,7 @@
 
 ### Intake
 
-- [ ] **INTAKE-01**: User submits a problem description (English or Russian text, optional examples/tests) via the API
+- [x] **INTAKE-01**: User submits a problem description (English or Russian text, optional examples/tests) via the API
 - [ ] **INTAKE-02**: Problem Analyzer extracts the task's constraints, input/output shape, and intent from free-text input
 - [ ] **INTAKE-03**: Problem Analyzer assigns a difficulty rating (Easy/Medium/Hard)
 - [ ] **INTAKE-04**: When the problem description is ambiguous or underspecified, the task transitions to `awaiting_clarification` status instead of guessing
@@ -53,22 +53,22 @@
 ### Orchestration
 
 - [ ] **ORCH-01**: The full pipeline (Analyzer → Strategist → Solver → Code Generator → Test Generator → Executors → Reviewer → correction loop → Editorial Writer) runs as a LangGraph StateGraph with deterministic transitions and LLM reasoning bounded to specific nodes
-- [ ] **ORCH-02**: Inter-node data (analysis, approaches, code, review results) is validated via Pydantic structured-output schemas
+- [x] **ORCH-02**: Inter-node data (analysis, approaches, code, review results) is validated via Pydantic structured-output schemas
 - [ ] **ORCH-03**: Each OpenAI-backed node's model is configurable independently via env/config (e.g. cheap model for analysis/review, strong model for solving/finalization)
 - [ ] **ORCH-04**: LangGraph execution state is checkpointed to PostgreSQL so an interrupted run (including one paused on `awaiting_clarification`) can resume from where it left off
 
 ### API & Realtime
 
-- [ ] **API-01**: `POST /api/v1/tasks` accepts a problem submission and returns `202 Accepted` with `task_id` and `status: queued`
-- [ ] **API-02**: `GET /api/v1/tasks/{task_id}` returns the task's current status and, when completed, its result
+- [x] **API-01**: `POST /api/v1/tasks` accepts a problem submission and returns `202 Accepted` with `task_id` and `status: queued`
+- [x] **API-02**: `GET /api/v1/tasks/{task_id}` returns the task's current status and, when completed, its result
 - [ ] **API-03**: `POST /api/v1/tasks/{task_id}/clarification` accepts a clarification answer for a task in `awaiting_clarification` status
 - [ ] **API-04**: `WS /api/v1/tasks/{task_id}/events` streams status transitions in realtime (queued → analyzing_problem → designing_solution → generating_code → generating_tests → executing_tests → reviewing → correcting → awaiting_clarification → writing_editorial → completed/failed)
 - [ ] **API-05**: A WebSocket client connecting after a task has already progressed immediately receives the task's current state, not only future deltas
 
 ### Queue & Persistence
 
-- [ ] **QUEUE-01**: API requests enqueue tasks via taskiq + Redis and return immediately; if all workers are busy, the task remains in `queued` status until a worker is free
-- [ ] **DATA-01**: PostgreSQL is the source of truth for task state (id, status, timestamps, error, result)
+- [x] **QUEUE-01**: API requests enqueue tasks via taskiq + Redis and return immediately; if all workers are busy, the task remains in `queued` status until a worker is free
+- [x] **DATA-01**: PostgreSQL is the source of truth for task state (id, status, timestamps, error, result)
 - [ ] **DATA-02**: Intermediate artifacts per task (ProblemAnalysis, each Solution's algorithm/Python code/Go code/tests/complexity/review history, final Editorial) are persisted to Garage (S3-compatible storage)
 
 ### Frontend
@@ -80,8 +80,8 @@
 
 ### Infrastructure
 
-- [ ] **INFRA-01**: Project uses Python 3.14 managed via `uv`, a single package with clear modular structure (agents/, tools/, api/, worker/, schemas/) — not DDD/clean-architecture layering
-- [ ] **INFRA-02**: Docker Compose brings up API, worker, PostgreSQL, Redis, and Garage together
+- [x] **INFRA-01**: Project uses Python 3.14 managed via `uv`, a single package with clear modular structure (agents/, tools/, api/, worker/, schemas/) — not DDD/clean-architecture layering
+- [x] **INFRA-02**: Docker Compose brings up API, worker, PostgreSQL, Redis, and Garage together
 - [ ] **INFRA-03**: OpenAI timeout and rate-limit errors trigger a pause-and-cooldown retry with backoff rather than an immediate failure
 - [ ] **INFRA-04**: A global timeout bounds total task solve time; a task exceeding it terminates as FAILED rather than running indefinitely
 - [ ] **INFRA-05**: Full documentation set is produced alongside implementation: `CLAUDE.md` (minimal repo rules) + `docs/product/prd.md` + `docs/architecture/{architecture,agents,workflow,data-model}.md` + `docs/development/{testing,conventions}.md` + `docs/plans/implementation-plan.md`, with deferred/future-scope assumptions captured in their own dedicated section
@@ -131,14 +131,14 @@ Explicitly excluded. Documented to prevent scope creep.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INTAKE-01 | Phase 1 | Pending |
-| ORCH-02 | Phase 1 | Pending |
-| API-01 | Phase 1 | Pending |
-| API-02 | Phase 1 | Pending |
-| QUEUE-01 | Phase 1 | Pending |
-| DATA-01 | Phase 1 | Pending |
-| INFRA-01 | Phase 1 | Pending |
-| INFRA-02 | Phase 1 | Pending |
+| INTAKE-01 | Phase 1 | Complete |
+| ORCH-02 | Phase 1 | Complete |
+| API-01 | Phase 1 | Complete |
+| API-02 | Phase 1 | Complete |
+| QUEUE-01 | Phase 1 | Complete |
+| DATA-01 | Phase 1 | Complete |
+| INFRA-01 | Phase 1 | Complete |
+| INFRA-02 | Phase 1 | Complete |
 | INTAKE-02 | Phase 2 | Pending |
 | INTAKE-03 | Phase 2 | Pending |
 | INTAKE-04 | Phase 2 | Pending |
@@ -181,6 +181,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | INFRA-05 | Phase 4 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 48 total (corrected from a stale "42" count in the original definition — recount against the actual `### Intake` through `### Infrastructure` sections above)
 - Mapped to phases: 48
 - Unmapped: 0 ✓
