@@ -2,23 +2,30 @@
 
 This is a Python 3.14/LangGraph compatibility smoke test wrapping the D-04-D-07
 placeholder success/fail logic — not functional pipeline logic. Kept trivial.
-
-RED-phase scaffolding: stub_node is intentionally a no-op below (returns {})
-so tests/graph/test_build.py fails on its result/error assertions rather than
-on an ImportError, before the real behavior lands in the GREEN commit.
 """
 
 import asyncio
+import random
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from algorunner.graph.state import StubGraphState
+from algorunner.worker.tasks import FAIL_TEST_MARKER
 
 
 async def stub_node(state: StubGraphState) -> dict:
-    _ = asyncio  # RED-phase scaffolding placeholder; sleep call lands in GREEN
-    return {}
+    await asyncio.sleep(random.uniform(2, 5))  # D-06, moved here from worker/tasks.py
+
+    if FAIL_TEST_MARKER in state["problem_text"]:  # D-05
+        return {
+            "error": {
+                "code": "SIMULATED_FAILURE",
+                "message": "Task failed via FAIL_TEST marker",
+            }
+        }
+
+    return {"result": {"message": "stub pipeline completed"}}
 
 
 def build_stub_graph(checkpointer: object) -> CompiledStateGraph:
