@@ -13,7 +13,7 @@ AlgoRunner starts as a bare task-lifecycle skeleton (submit → queue → status
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation & Task Lifecycle Skeleton** - Real API, queue, worker, and database wiring so a submitted task moves through queued → completed on a deployed stack, before any AI logic exists
+- [x] **Phase 1: Foundation & Task Lifecycle Skeleton** - Real API, queue, worker, and database wiring so a submitted task moves through queued → completed on a deployed stack, before any AI logic exists (completed 2026-09-22)
 - [ ] **Phase 2: Verified Single-Solution Core Pipeline** - Analyzer, generic Solver, dual-language code generation, real Python/Go execution, Reviewer, and bounded correction loop deliver one verified solution end-to-end
 - [ ] **Phase 3: Multi-Approach Editorial & Persistence** - Multiple curated approaches compose into the final Russian-language editorial article, with all artifacts durably persisted
 - [ ] **Phase 4: Realtime Streaming, Frontend & Documentation** - Live WebSocket status, the React web UI, and the full documentation set complete the user-facing product
@@ -96,7 +96,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Task Lifecycle Skeleton | 2/2 | In Progress|  |
+| 1. Foundation & Task Lifecycle Skeleton | 2/2 | Complete    | 2026-09-22 |
 | 2. Verified Single-Solution Core Pipeline | 0/TBD | Not started | - |
 | 3. Multi-Approach Editorial & Persistence | 0/TBD | Not started | - |
 | 4. Realtime Streaming, Frontend & Documentation | 0/TBD | Not started | - |
