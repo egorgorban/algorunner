@@ -20,10 +20,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-22)
+See: .planning/PROJECT.md (updated 2026-09-22 after Phase 1)
 
 **Core value:** Correctness of the generated solution — verified by actually executing the generated Python and Go code against generated (or provided) tests — matters more than explanation quality or speed.
-**Current focus:** Phase 01 — Foundation & Task Lifecycle Skeleton
+**Current focus:** Phase 2 — Verified Single-Solution Core Pipeline
 
 ## Current Position
 
@@ -75,6 +75,7 @@ Recent decisions affecting current work:
 - [Phase 01]: Garage v2.4.1 requires an explicit /etc/garage.toml config file even with --single-node
 - [Phase 01]: [Phase 01-02]: Broke a worker.tasks <-> graph.build circular import by making worker/tasks.py's import of build_stub_graph a function-local (deferred) import, keeping graph/build.py's module-level import of FAIL_TEST_MARKER as the single source of truth
 - [Phase 01]: [Phase 01-02]: gsd-tools check tdd-red-evidence parses Node.js TAP output only (no pytest adapter); RED-phase discipline for this Python project was verified manually via pytest -v output instead
+- [Phase 01]: LangGraph + `langgraph-checkpoint-postgres`'s `AsyncPostgresSaver` confirmed working under Python 3.14 against a real Postgres instance (checkpoint rows verified via direct `psql` query) — the research-flagged compatibility risk is resolved, no 3.13 pin needed
 
 ### Pending Todos
 
@@ -82,10 +83,13 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 1: LangGraph's Python 3.14 support is unconfirmed (research flag) — verify with a real `uv sync` smoke test early in Phase 1; documented fallback is pinning the interpreter to 3.13
-- Phase 1: OpenAI Python SDK v1 vs v2 major version should be pinned deliberately during setup, not left to float
+- Phase 2: OpenAI Python SDK v1 vs v2 major version should be pinned deliberately when Phase 2 first adds real OpenAI calls, not left to float
 - Phase 2: `Command` vs `add_conditional_edges` idiom for the correction loop is an actively-evolving part of the LangGraph API — confirm against the pinned version before locking the state schema
 - Phase 2: LangGraph's internal `recursion_limit` (default 25, counts supersteps) is a different counter from the app-level `max_iterations` — must be explicitly reconciled or a `GraphRecursionError` will leak through instead of a clean FAILED result
+- Phase 2: [01-REVIEW.md, CR-01/CR-02] `solve_problem_stub` has no exception handling and silently no-ops on a missing task row — any worker-side crash or race leaves a task stuck at a non-terminal status forever with no failure surfaced; must be fixed before Phase 2 adds real (more failure-prone) AI/execution logic to this same function
+- Phase 2: [01-REVIEW.md, CR-03] `AsyncPostgresSaver.setup()` is called unprotected on every task invocation and races under concurrent first-time calls (`UniqueViolation`) — move it to one-time `WORKER_STARTUP` setup, under the same advisory lock as migrations
+- Phase 2: [01-REVIEW.md, CR-04] the body-size DoS middleware only checks `Content-Length` and is bypassed by chunked/missing-header requests — needs a real streamed byte-count cap
+- Phase 2: [01-REVIEW.md, WR-01] the worker process holds two independent, unmemoized Postgres connection pools (`worker/broker.py`'s `state.pg_pool` is dead code) — `get_pool()` should be memoized to a single pool per process before scaling `--workers N`
 
 ## Deferred Items
 
@@ -97,6 +101,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-22T19:38:24.069Z
-Stopped at: Phase 01 complete, ready to plan Phase 2
+Last session: 2026-09-22T19:54:23.384Z
+Stopped at: Phase 01 complete and transitioned — PROJECT.md evolved (5 requirements validated, LangGraph/Python 3.14 decision confirmed), ready to plan Phase 2
 Resume file: None

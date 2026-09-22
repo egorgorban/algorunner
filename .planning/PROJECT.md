@@ -12,7 +12,11 @@ Correctness of the generated solution — verified by actually executing the gen
 
 ### Validated
 
-(None yet — ship to validate)
+- ✓ REST API (FastAPI): `POST /api/v1/tasks` creates a task (202 Accepted, returns task_id + status=queued), `GET /api/v1/tasks/{id}` fetches current state — Phase 1
+- ✓ Task queue (taskiq + Redis broker): API enqueues and returns immediately; if workers are busy, task sits in "queued" status until a worker is free — Phase 1
+- ✓ PostgreSQL stores task state (id, status, timestamps, error, result) and LangGraph checkpoints — Phase 1 (both proven live against real Postgres, not `InMemorySaver`)
+- ✓ LangGraph execution state is checkpointed so an interrupted run can resume — Phase 1 (compiled `StateGraph` + `AsyncPostgresSaver`, confirmed under Python 3.14)
+- ✓ Docker Compose deployment (API, worker, Postgres, Redis, Garage) — Phase 1
 
 ### Active
 
@@ -34,12 +38,9 @@ Correctness of the generated solution — verified by actually executing the gen
 - [ ] LangGraph orchestrates the pipeline as a fixed state graph (hybrid architecture): deterministic transitions, LLM reasoning bounded to specific nodes (analysis, strategy, generation, review, writing)
 - [ ] Per-agent model configuration via env/config (different OpenAI models for cheap vs strong reasoning steps)
 - [ ] Structured outputs (Pydantic schemas) between agents/nodes
-- [ ] LangGraph execution state is checkpointed so an interrupted run can resume
-- [ ] REST API (FastAPI): `POST /api/v1/tasks` creates a task (202 Accepted, returns task_id + status=queued), `GET /api/v1/tasks/{id}` fetches current state
 - [ ] WebSocket API: `WS /api/v1/tasks/{id}/events` streams pipeline status transitions (queued → analyzing_problem → designing_solution → generating_code → generating_tests → executing_tests → reviewing → correcting → writing_editorial → completed/failed)
-- [ ] Task queue (taskiq + Redis broker): API enqueues and returns immediately; if workers are busy, task sits in "queued" status until a worker is free
-- [ ] PostgreSQL stores task state (id, status, timestamps, error, result) and LangGraph checkpoints
 - [ ] Intermediate artifacts persisted per task: ProblemAnalysis, Solution[] (algorithm, python code, go code, tests, complexity, review history), final Editorial — stored in Garage (S3-compatible object storage)
+- [ ] Worker-side task failures (exceptions, missing rows, checkpointer setup races) are always caught and surfaced as a structured `FAILED` status — never left stuck at a non-terminal status or silently reported as completed (surfaced by Phase 1 code review; must hold before Phase 2 adds more failure-prone AI/execution logic to the same code path)
 - [ ] Global timeout on total task solve time; retries with backoff on OpenAI timeout/rate-limit (pause + cooldown)
 - [ ] React + TypeScript web UI: problem input form, live status view (via WebSocket), final editorial display (per-approach: explanation, Python, Go, complexity)
 - [ ] Docker Compose deployment (API, worker, Postgres, Redis, Garage)
@@ -88,7 +89,8 @@ Correctness of the generated solution — verified by actually executing the gen
 | Strategist + generic Solver (not one dedicated agent per algorithm type) for multi-solution generation | Avoids combinatorial agent sprawl while still surfacing brute-force + optimized (+ alternative) approaches | — Pending |
 | Deterministic execution as tools, not agents (PythonExecutorTool, GoExecutorTool) | Keeps agent logic swappable from subprocess → sandbox → isolated service later without touching agent code | — Pending |
 | Go code is compiled and executed/tested, not just generated as text | Product owner confirmed correctness must be verified for both Python and Go outputs | — Pending |
-| taskiq + Redis over Celery/ARQ | Celery too heavyweight for this project; ARQ unsupported; taskiq fits FastAPI/asyncio naturally | — Pending |
+| taskiq + Redis over Celery/ARQ | Celery too heavyweight for this project; ARQ unsupported; taskiq fits FastAPI/asyncio naturally | ✓ Shipped Phase 1 — `RedisStreamBroker` wired end-to-end, live queued→completed round trip verified |
+| LangGraph `StateGraph` + `langgraph-checkpoint-postgres`'s `AsyncPostgresSaver` under Python 3.14 | Research flagged Python 3.14 LangGraph compatibility as unconfirmed, with a documented 3.13 fallback | ✓ Confirmed Phase 1 — a compiled single-node `StateGraph` checkpoints real rows to Postgres under Python 3.14; no interpreter pin needed |
 | Claude Code follows a BMAD-influenced (not literal) lifecycle: requirements → architecture → implementation plan → implementation → testing → review | Product owner wants fixed architecture and staged tasks without the overhead of literal BMAD role personas | — Pending |
 | Full docs set (CLAUDE.md + docs/product, architecture, development, plans) generated alongside implementation | Product owner wants git history and specs to read as one coherent build, with deferred items tracked explicitly | — Pending |
 | React + TypeScript frontend included in v1, not deferred | Product owner considers the web UI part of the initial deliverable, not a stretch goal | — Pending |
@@ -113,4 +115,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-22 after initialization*
+*Last updated: 2026-09-22 after Phase 1*
