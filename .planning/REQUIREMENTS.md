@@ -129,17 +129,62 @@ Explicitly excluded. Documented to prevent scope creep.
 
 ## Traceability
 
-Populated during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (to be filled by roadmapper) | | Pending |
+| INTAKE-01 | Phase 1 | Pending |
+| ORCH-02 | Phase 1 | Pending |
+| API-01 | Phase 1 | Pending |
+| API-02 | Phase 1 | Pending |
+| QUEUE-01 | Phase 1 | Pending |
+| DATA-01 | Phase 1 | Pending |
+| INFRA-01 | Phase 1 | Pending |
+| INFRA-02 | Phase 1 | Pending |
+| INTAKE-02 | Phase 2 | Pending |
+| INTAKE-03 | Phase 2 | Pending |
+| INTAKE-04 | Phase 2 | Pending |
+| INTAKE-05 | Phase 2 | Pending |
+| STRAT-01 | Phase 2 | Pending |
+| STRAT-03 | Phase 2 | Pending |
+| STRAT-04 | Phase 2 | Pending |
+| CODE-01 | Phase 2 | Pending |
+| CODE-02 | Phase 2 | Pending |
+| CODE-03 | Phase 2 | Pending |
+| CODE-04 | Phase 2 | Pending |
+| EXEC-01 | Phase 2 | Pending |
+| EXEC-02 | Phase 2 | Pending |
+| EXEC-03 | Phase 2 | Pending |
+| REV-01 | Phase 2 | Pending |
+| REV-02 | Phase 2 | Pending |
+| REV-03 | Phase 2 | Pending |
+| REV-04 | Phase 2 | Pending |
+| REV-05 | Phase 2 | Pending |
+| ORCH-03 | Phase 2 | Pending |
+| ORCH-04 | Phase 2 | Pending |
+| API-03 | Phase 2 | Pending |
+| INFRA-03 | Phase 2 | Pending |
+| INFRA-04 | Phase 2 | Pending |
+| STRAT-02 | Phase 3 | Pending |
+| EDIT-01 | Phase 3 | Pending |
+| EDIT-02 | Phase 3 | Pending |
+| EDIT-03 | Phase 3 | Pending |
+| EDIT-04 | Phase 3 | Pending |
+| EDIT-05 | Phase 3 | Pending |
+| EDIT-06 | Phase 3 | Pending |
+| ORCH-01 | Phase 3 | Pending |
+| DATA-02 | Phase 3 | Pending |
+| API-04 | Phase 4 | Pending |
+| API-05 | Phase 4 | Pending |
+| UI-01 | Phase 4 | Pending |
+| UI-02 | Phase 4 | Pending |
+| UI-03 | Phase 4 | Pending |
+| UI-04 | Phase 4 | Pending |
+| INFRA-05 | Phase 4 | Pending |
 
 **Coverage:**
-- v1 requirements: 42 total
-- Mapped to phases: 0
-- Unmapped: 42 ⚠️ (roadmap not yet created)
+- v1 requirements: 48 total (corrected from a stale "42" count in the original definition — recount against the actual `### Intake` through `### Infrastructure` sections above)
+- Mapped to phases: 48
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-09-22*
-*Last updated: 2026-09-22 after initial definition*
+*Last updated: 2026-09-22 after roadmap creation (traceability populated, stale total-count corrected)*
