@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. The submitted task is enqueued via taskiq + Redis, picked up by a worker, and its status is visible via `GET /api/v1/tasks/{id}` with PostgreSQL as the single source of truth for that status
   4. All data exchanged between API and worker is validated by Pydantic schemas, inside a single `uv`-managed package with clear modular structure (agents/, tools/, api/, worker/, schemas/)
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans executed
 Plans:
 **Wave 1**
 
@@ -41,7 +41,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02-PLAN.md — LangGraph stub graph checkpointed to Postgres (D-12/D-13 smoke test), validation/error-state hardening, and a final full-stack verification
+- [x] 01-02-PLAN.md — LangGraph stub graph checkpointed to Postgres (D-12/D-13 smoke test), validation/error-state hardening, and a final full-stack verification
 
 ### Phase 2: Verified Single-Solution Core Pipeline
 
@@ -96,7 +96,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Task Lifecycle Skeleton | 1/2 | In Progress|  |
+| 1. Foundation & Task Lifecycle Skeleton | 2/2 | In Progress|  |
 | 2. Verified Single-Solution Core Pipeline | 0/TBD | Not started | - |
 | 3. Multi-Approach Editorial & Persistence | 0/TBD | Not started | - |
 | 4. Realtime Streaming, Frontend & Documentation | 0/TBD | Not started | - |
