@@ -33,6 +33,34 @@ services:
       - garage-data:/var/lib/garage/data
     command: ["/garage", "server", "--single-node"]
 
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://algorunner:algorunner@postgres:5432/algorunner
+      REDIS_URL: redis://redis:6379
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://algorunner:algorunner@postgres:5432/algorunner
+      REDIS_URL: redis://redis:6379
+
 volumes:
   garage-meta:
   garage-data:

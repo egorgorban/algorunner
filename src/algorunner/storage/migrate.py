@@ -54,6 +54,25 @@ async def apply_pending_migrations(pool: AsyncConnectionPool) -> list[str]:
         return newly_applied
 
 
+async def run_migrations_with_lock(
+    pool: AsyncConnectionPool, lock_id: int = 892637
+) -> list[str]:
+    """Apply pending migrations under a session-level Postgres advisory lock.
+
+    Prevents the api and worker containers booting concurrently from
+    double-applying or racing on migrations (RESEARCH.md Open Questions ->
+    "Migration runner implementation detail").
+    """
+    await pool.open()
+
+    async with pool.connection() as conn:
+        await conn.execute("SELECT pg_advisory_lock(%s)", (lock_id,))
+        try:
+            return await apply_pending_migrations(pool)
+        finally:
+            await conn.execute("SELECT pg_advisory_unlock(%s)", (lock_id,))
+
+
 async def _main() -> None:
     pool = get_pool()
     await pool.open()

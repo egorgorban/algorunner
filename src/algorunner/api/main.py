@@ -5,6 +5,7 @@ import taskiq_fastapi
 from fastapi import FastAPI
 
 from algorunner.api.routes.tasks import router as tasks_router
+from algorunner.storage.migrate import run_migrations_with_lock
 from algorunner.storage.postgres import get_pool
 from algorunner.worker.broker import broker
 
@@ -14,6 +15,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     pool = get_pool()
     await pool.open()
     app.state.pg_pool = pool
+
+    await run_migrations_with_lock(pool)
 
     taskiq_fastapi.init(broker, "algorunner.api.main:app")
 
