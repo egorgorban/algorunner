@@ -18,7 +18,11 @@ Correctness of the generated solution — verified by actually executing the gen
 
 - [ ] User submits a problem description (text + optional examples) and receives an editorial-style result with 1+ solution approaches
 - [ ] Each solution approach includes: explanation, Python code, Go code, complexity analysis
-- [ ] Problem Analyzer extracts/clarifies the task from free-text input; asks a clarifying question when the input is ambiguous or underspecified
+- [ ] Problem Analyzer extracts/clarifies the task from free-text input; when ambiguous or underspecified, the task moves to an `awaiting_clarification` status and an API endpoint lets the user submit an answer to resume the same task (real interactive pause/resume, not stated assumptions)
+- [ ] Editorial includes a difficulty rating (Easy/Medium/Hard) from the Problem Analyzer
+- [ ] Editorial includes topic/technique tags (e.g. two pointers, DP, graph) from the Solution Strategist
+- [ ] Editorial includes explicit edge-case callouts sourced from the Reviewer's edge-case checks
+- [ ] Editorial Writer includes a narrative bridge explaining why each subsequent approach improves on the previous one
 - [ ] Solution Strategist proposes 1+ distinct approaches (e.g. brute-force + optimized) using a generic solver (not one agent per algorithm type)
 - [ ] Code Generator produces Python and Go implementations per approach
 - [ ] Test Generator produces test cases per approach (uses provided tests if given, generates additional ones otherwise)
@@ -88,6 +92,8 @@ Correctness of the generated solution — verified by actually executing the gen
 | Claude Code follows a BMAD-influenced (not literal) lifecycle: requirements → architecture → implementation plan → implementation → testing → review | Product owner wants fixed architecture and staged tasks without the overhead of literal BMAD role personas | — Pending |
 | Full docs set (CLAUDE.md + docs/product, architecture, development, plans) generated alongside implementation | Product owner wants git history and specs to read as one coherent build, with deferred items tracked explicitly | — Pending |
 | React + TypeScript frontend included in v1, not deferred | Product owner considers the web UI part of the initial deliverable, not a stretch goal | — Pending |
+| Ambiguity handling uses real interactive pause/resume (`awaiting_clarification` status + answer endpoint), not stated-assumptions | Interview explicitly said "задавать вопрос"; research flagged the async task-queue architecture makes true interactivity non-trivial, but product owner confirmed the harder path over the cheaper default | — Pending |
+| Difficulty rating, topic tags, edge-case callouts, and an approach-bridge narrative are in v1 | Research identified these as near-free byproducts of data the pipeline already produces (Analyzer, Strategist, Reviewer outputs) and baseline user expectations for this product category | — Pending |
 
 ## Evolution
 
