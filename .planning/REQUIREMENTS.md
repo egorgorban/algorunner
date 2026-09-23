@@ -15,10 +15,10 @@
 
 ### Strategy
 
-- [ ] **STRAT-01**: Solution Strategist proposes 1+ distinct solution approaches (e.g. brute-force, optimized, alternative) for the analyzed problem
+- [x] **STRAT-01**: Solution Strategist proposes 1+ distinct solution approaches (e.g. brute-force, optimized, alternative) for the analyzed problem
 - [ ] **STRAT-02**: Solution Strategist decides which alternative approaches are worth including in the final editorial (not every possible approach is surfaced)
-- [ ] **STRAT-03**: Each proposed approach is tagged with its topic/technique (e.g. "two pointers", "dynamic programming", "graph — BFS")
-- [ ] **STRAT-04**: A single generic Solver agent (not one agent per algorithm type) elaborates each proposed approach into a concrete algorithm
+- [x] **STRAT-03**: Each proposed approach is tagged with its topic/technique (e.g. "two pointers", "dynamic programming", "graph — BFS")
+- [x] **STRAT-04**: A single generic Solver agent (not one agent per algorithm type) elaborates each proposed approach into a concrete algorithm
 
 ### Code Generation
 
@@ -143,9 +143,9 @@ Explicitly excluded. Documented to prevent scope creep.
 | INTAKE-03 | Phase 2 | Complete |
 | INTAKE-04 | Phase 2 | Pending |
 | INTAKE-05 | Phase 2 | Pending |
-| STRAT-01 | Phase 2 | Pending |
-| STRAT-03 | Phase 2 | Pending |
-| STRAT-04 | Phase 2 | Pending |
+| STRAT-01 | Phase 2 | Complete |
+| STRAT-03 | Phase 2 | Complete |
+| STRAT-04 | Phase 2 | Complete |
 | CODE-01 | Phase 2 | Pending |
 | CODE-02 | Phase 2 | Pending |
 | CODE-03 | Phase 2 | Pending |
