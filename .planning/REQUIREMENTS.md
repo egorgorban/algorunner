@@ -54,7 +54,7 @@
 
 - [ ] **ORCH-01**: The full pipeline (Analyzer → Strategist → Solver → Code Generator → Test Generator → Executors → Reviewer → correction loop → Editorial Writer) runs as a LangGraph StateGraph with deterministic transitions and LLM reasoning bounded to specific nodes
 - [x] **ORCH-02**: Inter-node data (analysis, approaches, code, review results) is validated via Pydantic structured-output schemas
-- [ ] **ORCH-03**: Each OpenAI-backed node's model is configurable independently via env/config (e.g. cheap model for analysis/review, strong model for solving/finalization)
+- [x] **ORCH-03**: Each OpenAI-backed node's model is configurable independently via env/config (e.g. cheap model for analysis/review, strong model for solving/finalization)
 - [ ] **ORCH-04**: LangGraph execution state is checkpointed to PostgreSQL so an interrupted run (including one paused on `awaiting_clarification`) can resume from where it left off
 
 ### API & Realtime
@@ -82,7 +82,7 @@
 
 - [x] **INFRA-01**: Project uses Python 3.14 managed via `uv`, a single package with clear modular structure (agents/, tools/, api/, worker/, schemas/) — not DDD/clean-architecture layering
 - [x] **INFRA-02**: Docker Compose brings up API, worker, PostgreSQL, Redis, and Garage together
-- [ ] **INFRA-03**: OpenAI timeout and rate-limit errors trigger a pause-and-cooldown retry with backoff rather than an immediate failure
+- [x] **INFRA-03**: OpenAI timeout and rate-limit errors trigger a pause-and-cooldown retry with backoff rather than an immediate failure
 - [ ] **INFRA-04**: A global timeout bounds total task solve time; a task exceeding it terminates as FAILED rather than running indefinitely
 - [ ] **INFRA-05**: Full documentation set is produced alongside implementation: `CLAUDE.md` (minimal repo rules) + `docs/product/prd.md` + `docs/architecture/{architecture,agents,workflow,data-model}.md` + `docs/development/{testing,conventions}.md` + `docs/plans/implementation-plan.md`, with deferred/future-scope assumptions captured in their own dedicated section
 
@@ -158,10 +158,10 @@ Explicitly excluded. Documented to prevent scope creep.
 | REV-03 | Phase 2 | Pending |
 | REV-04 | Phase 2 | Pending |
 | REV-05 | Phase 2 | Pending |
-| ORCH-03 | Phase 2 | Pending |
+| ORCH-03 | Phase 2 | Complete |
 | ORCH-04 | Phase 2 | Pending |
 | API-03 | Phase 2 | Pending |
-| INFRA-03 | Phase 2 | Pending |
+| INFRA-03 | Phase 2 | Complete |
 | INFRA-04 | Phase 2 | Pending |
 | STRAT-02 | Phase 3 | Pending |
 | EDIT-01 | Phase 3 | Pending |
