@@ -20,6 +20,7 @@ class Language(str, Enum):
 class Example(BaseModel):
     input: str
     output: str
+    explanation: str | None = None
 
 
 class TaskSubmission(BaseModel):
