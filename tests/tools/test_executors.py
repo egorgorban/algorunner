@@ -8,9 +8,9 @@ cover the same three scenarios translated to Go's compile+run model.
 appended after `code` (Python: `assert` statements; Go: statements executed
 inside a generated `func main`) — matching RESEARCH.md Pattern 3's verified
 example (`script.write_text(code + "\\n\\n" + tests)`), not a separate
-data-interchange format. Test-writer-controlled here; `_render_test_harness`
-in `graph/build.py` (Task 3) is responsible for producing this shape from
-`Solution.tests` in production.
+data-interchange format. Test-writer-controlled here; in production
+`render_python_program`/`render_go_program` in `graph/harness.py` produce this
+shape from the structured `Solution.tests`.
 """
 
 import asyncio
