@@ -10,8 +10,8 @@
 - [x] **INTAKE-01**: User submits a problem description (English or Russian text, optional examples/tests) via the API
 - [x] **INTAKE-02**: Problem Analyzer extracts the task's constraints, input/output shape, and intent from free-text input
 - [x] **INTAKE-03**: Problem Analyzer assigns a difficulty rating (Easy/Medium/Hard)
-- [ ] **INTAKE-04**: When the problem description is ambiguous or underspecified, the task transitions to `awaiting_clarification` status instead of guessing
-- [ ] **INTAKE-05**: User can submit a clarification answer against an `awaiting_clarification` task via a dedicated API endpoint, resuming the same task from its checkpointed state
+- [x] **INTAKE-04**: When the problem description is ambiguous or underspecified, the task transitions to `awaiting_clarification` status instead of guessing
+- [x] **INTAKE-05**: User can submit a clarification answer against an `awaiting_clarification` task via a dedicated API endpoint, resuming the same task from its checkpointed state
 
 ### Strategy
 
@@ -29,17 +29,17 @@
 
 ### Execution
 
-- [ ] **EXEC-01**: Deterministic PythonExecutorTool runs generated Python code against generated/provided tests via subprocess and returns a structured pass/fail result (not an LLM agent)
-- [ ] **EXEC-02**: Deterministic GoExecutorTool compiles and runs generated Go code against generated/provided tests via subprocess and returns a structured pass/fail result (not an LLM agent)
-- [ ] **EXEC-03**: Both executor tools are built behind a swappable interface so the underlying execution strategy (subprocess today) can later be replaced with a sandboxed/isolated implementation without changing agent logic
+- [x] **EXEC-01**: Deterministic PythonExecutorTool runs generated Python code against generated/provided tests via subprocess and returns a structured pass/fail result (not an LLM agent)
+- [x] **EXEC-02**: Deterministic GoExecutorTool compiles and runs generated Go code against generated/provided tests via subprocess and returns a structured pass/fail result (not an LLM agent)
+- [x] **EXEC-03**: Both executor tools are built behind a swappable interface so the underlying execution strategy (subprocess today) can later be replaced with a sandboxed/isolated implementation without changing agent logic
 
 ### Review
 
-- [ ] **REV-01**: Reviewer agent evaluates each approach's correctness, algorithm soundness, edge-case coverage, complexity claim, and code quality
-- [ ] **REV-02**: Reviewer returns a structured ReviewResult (passed, issues, severity, required_changes) including edge cases considered
-- [ ] **REV-03**: Reviewer's complexity check requires a reasoning justification for the claimed Big-O, not just acceptance of the asserted notation
-- [ ] **REV-04**: A failed review routes the task back into a correction loop (Solution Designer/Solver) carrying prior attempt context, not starting over
-- [ ] **REV-05**: The correction loop is bounded by a configurable max_iterations (3-5); exceeding it produces a terminal FAILED result instead of looping indefinitely
+- [x] **REV-01**: Reviewer agent evaluates each approach's correctness, algorithm soundness, edge-case coverage, complexity claim, and code quality
+- [x] **REV-02**: Reviewer returns a structured ReviewResult (passed, issues, severity, required_changes) including edge cases considered
+- [x] **REV-03**: Reviewer's complexity check requires a reasoning justification for the claimed Big-O, not just acceptance of the asserted notation
+- [x] **REV-04**: A failed review routes the task back into a correction loop (Solution Designer/Solver) carrying prior attempt context, not starting over
+- [x] **REV-05**: The correction loop is bounded by a configurable max_iterations (3-5); exceeding it produces a terminal FAILED result instead of looping indefinitely
 
 ### Editorial
 
@@ -61,7 +61,7 @@
 
 - [x] **API-01**: `POST /api/v1/tasks` accepts a problem submission and returns `202 Accepted` with `task_id` and `status: queued`
 - [x] **API-02**: `GET /api/v1/tasks/{task_id}` returns the task's current status and, when completed, its result
-- [ ] **API-03**: `POST /api/v1/tasks/{task_id}/clarification` accepts a clarification answer for a task in `awaiting_clarification` status
+- [x] **API-03**: `POST /api/v1/tasks/{task_id}/clarification` accepts a clarification answer for a task in `awaiting_clarification` status
 - [ ] **API-04**: `WS /api/v1/tasks/{task_id}/events` streams status transitions in realtime (queued → analyzing_problem → designing_solution → generating_code → generating_tests → executing_tests → reviewing → correcting → awaiting_clarification → writing_editorial → completed/failed)
 - [ ] **API-05**: A WebSocket client connecting after a task has already progressed immediately receives the task's current state, not only future deltas
 
@@ -83,7 +83,7 @@
 - [x] **INFRA-01**: Project uses Python 3.14 managed via `uv`, a single package with clear modular structure (agents/, tools/, api/, worker/, schemas/) — not DDD/clean-architecture layering
 - [x] **INFRA-02**: Docker Compose brings up API, worker, PostgreSQL, Redis, and Garage together
 - [x] **INFRA-03**: OpenAI timeout and rate-limit errors trigger a pause-and-cooldown retry with backoff rather than an immediate failure
-- [ ] **INFRA-04**: A global timeout bounds total task solve time; a task exceeding it terminates as FAILED rather than running indefinitely
+- [x] **INFRA-04**: A global timeout bounds total task solve time; a task exceeding it terminates as FAILED rather than running indefinitely
 - [ ] **INFRA-05**: Full documentation set is produced alongside implementation: `CLAUDE.md` (minimal repo rules) + `docs/product/prd.md` + `docs/architecture/{architecture,agents,workflow,data-model}.md` + `docs/development/{testing,conventions}.md` + `docs/plans/implementation-plan.md`, with deferred/future-scope assumptions captured in their own dedicated section
 
 ## v2 Requirements
@@ -141,8 +141,8 @@ Explicitly excluded. Documented to prevent scope creep.
 | INFRA-02 | Phase 1 | Complete |
 | INTAKE-02 | Phase 2 | Complete |
 | INTAKE-03 | Phase 2 | Complete |
-| INTAKE-04 | Phase 2 | Pending |
-| INTAKE-05 | Phase 2 | Pending |
+| INTAKE-04 | Phase 2 | Complete |
+| INTAKE-05 | Phase 2 | Complete |
 | STRAT-01 | Phase 2 | Complete |
 | STRAT-03 | Phase 2 | Complete |
 | STRAT-04 | Phase 2 | Complete |
@@ -150,19 +150,19 @@ Explicitly excluded. Documented to prevent scope creep.
 | CODE-02 | Phase 2 | Complete |
 | CODE-03 | Phase 2 | Complete |
 | CODE-04 | Phase 2 | Complete |
-| EXEC-01 | Phase 2 | Pending |
-| EXEC-02 | Phase 2 | Pending |
-| EXEC-03 | Phase 2 | Pending |
-| REV-01 | Phase 2 | Pending |
-| REV-02 | Phase 2 | Pending |
-| REV-03 | Phase 2 | Pending |
-| REV-04 | Phase 2 | Pending |
-| REV-05 | Phase 2 | Pending |
+| EXEC-01 | Phase 2 | Complete |
+| EXEC-02 | Phase 2 | Complete |
+| EXEC-03 | Phase 2 | Complete |
+| REV-01 | Phase 2 | Complete |
+| REV-02 | Phase 2 | Complete |
+| REV-03 | Phase 2 | Complete |
+| REV-04 | Phase 2 | Complete |
+| REV-05 | Phase 2 | Complete |
 | ORCH-03 | Phase 2 | Complete |
 | ORCH-04 | Phase 2 | Complete |
-| API-03 | Phase 2 | Pending |
+| API-03 | Phase 2 | Complete |
 | INFRA-03 | Phase 2 | Complete |
-| INFRA-04 | Phase 2 | Pending |
+| INFRA-04 | Phase 2 | Complete |
 | STRAT-02 | Phase 3 | Pending |
 | EDIT-01 | Phase 3 | Pending |
 | EDIT-02 | Phase 3 | Pending |
