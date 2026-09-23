@@ -1,12 +1,23 @@
+FROM golang:1.27-bookworm AS go-toolchain
+
 FROM python:3.14-slim
 
 RUN pip install --no-cache-dir uv
+
+# Go toolchain (EXEC-02/GoExecutorTool — RESEARCH.md Pitfall 11: this image
+# previously had no Go installation at all, so every GoExecutorTool
+# invocation would fail with "go: command not found" in a real deployment).
+COPY --from=go-toolchain /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:${PATH}" \
+    GOCACHE=/tmp/gocache \
+    GOMODCACHE=/tmp/gomodcache
 
 WORKDIR /app
 
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 COPY migrations ./migrations
+COPY go-template ./go-template
 
 RUN uv sync --frozen
 
