@@ -1,36 +1,43 @@
-"""Compiled single-node LangGraph StateGraph, checkpointed to Postgres (D-12).
+"""Compiled LangGraph StateGraph for the real Phase 2 pipeline, checkpointed
+to Postgres (D-12).
 
-This is a Python 3.14/LangGraph compatibility smoke test wrapping the D-04-D-07
-placeholder success/fail logic — not functional pipeline logic. Kept trivial.
+As of this plan the pipeline is a single real node (Analyzer) followed by a
+`finalize_success` node; later plans (02-03..02-07) extend this same graph
+with Strategist/Solver/CodeGen/TestGen/Reviewer nodes and the correction-loop
+conditional edges — this module keeps the injected-checkpointer convention
+established by Phase 1's stub graph (the checkpointer is never constructed
+here, only wired in — `worker/tasks.py` owns construction).
+
+Replaces Phase 1's `build_stub_graph`/`stub_node` — the Phase-1-only magic-
+string failure-simulation hook is retired; real pipeline failure paths
+(CR-01 in `worker/tasks.py`) now supersede it.
 """
-
-import asyncio
-import random
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from algorunner.graph.state import StubGraphState
-from algorunner.worker.tasks import FAIL_TEST_MARKER
+from algorunner.agents.problem_analyzer.node import problem_analyzer_node
+from algorunner.graph.state import GraphState
 
 
-async def stub_node(state: StubGraphState) -> dict:
-    await asyncio.sleep(random.uniform(2, 5))  # D-06, moved here from worker/tasks.py
+async def finalize_success(state: GraphState) -> dict:
+    """Writes the final `result` dict for a successfully completed run.
 
-    if FAIL_TEST_MARKER in state["problem_text"]:  # D-05
-        return {
-            "error": {
-                "code": "SIMULATED_FAILURE",
-                "message": "Task failed via FAIL_TEST marker",
-            }
+    Later plans extend this function's body to add `solution`/`review`
+    fields as more nodes land — never replace it wholesale.
+    """
+    return {
+        "result": {
+            "analysis": state["analysis"].model_dump() if state["analysis"] else None,
         }
+    }
 
-    return {"result": {"message": "stub pipeline completed"}}
 
-
-def build_stub_graph(checkpointer: object) -> CompiledStateGraph:
-    builder = StateGraph(StubGraphState)
-    builder.add_node("stub", stub_node)
-    builder.add_edge(START, "stub")
-    builder.add_edge("stub", END)
+def build_pipeline_graph(checkpointer: object) -> CompiledStateGraph:
+    builder = StateGraph(GraphState)
+    builder.add_node("analyzer", problem_analyzer_node)
+    builder.add_node("finalize_success", finalize_success)
+    builder.add_edge(START, "analyzer")
+    builder.add_edge("analyzer", "finalize_success")
+    builder.add_edge("finalize_success", END)
     return builder.compile(checkpointer=checkpointer)
