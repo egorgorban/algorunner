@@ -2,12 +2,17 @@
 root, runs under `python3 -S` with a PATH-only env, and the denylists are
 extended.
 
-The suite runs as a normal user. Tests needing the root code path patch
-`process._euid` to return 0 AND replace `asyncio.create_subprocess_exec` with
-a spy that raises a sentinel (a real spawn with user=65534 as non-root would
-fail) and `os.chown` with a recorder. No test performs a real chown/setuid.
+The suite runs as a normal user. The drop now lives inside `preexec_fn`
+(setgroups, setgid, setuid, then rlimits), not in spawn kwargs, because the
+worker runs on uvloop which rejects identity keywords. Tests needing the root
+path patch `process._euid` to return 0 and mock `os.setgroups/os.setgid/
+os.setuid`; a recorded limit function replaces the real rlimits, so no test
+ever changes the pytest process's uid, groups or limits. Spawn-level tests
+replace `asyncio.create_subprocess_exec` with a spy that raises a sentinel and
+`os.chown` with a recorder.
 """
 
+import ast
 import asyncio
 import os
 from pathlib import Path
@@ -25,7 +30,6 @@ from algorunner.tools.process import (
     PrivilegeDropUnavailableError,
     prepare_workdir,
     run_in_process_group,
-    spawn_identity_kwargs,
 )
 from algorunner.tools.python_executor.subprocess_backend import (
     SubprocessPythonExecutor,
@@ -72,30 +76,114 @@ def _install_spies(monkeypatch) -> tuple[_Spy, list]:
     return spy, chowns
 
 
-# --- identity -------------------------------------------------------------
+# --- preexec composition --------------------------------------------------
 
 
-def test_identity_kwargs_for_root(monkeypatch):
-    _as_root(monkeypatch)
-    assert spawn_identity_kwargs() == {"user": 65534, "group": 65534, "extra_groups": []}
+def _record_syscalls(monkeypatch, *, fail: str | None = None) -> list[tuple]:
+    calls: list[tuple] = []
+
+    def _mk(name: str):
+        def _fn(arg):
+            if fail == name:
+                raise PermissionError(1, "Operation not permitted")
+            calls.append((name, list(arg) if name == "setgroups" else arg))
+
+        return _fn
+
+    monkeypatch.setattr(os, "setgroups", _mk("setgroups"))
+    monkeypatch.setattr(os, "setgid", _mk("setgid"))
+    monkeypatch.setattr(os, "setuid", _mk("setuid"))
+    return calls
 
 
-def test_identity_kwargs_empty_for_non_root(monkeypatch):
+def _limit_recording(calls: list[tuple]):
+    def _limit() -> None:
+        calls.append(("limit",))
+
+    return _limit
+
+
+def test_preexec_non_root_returns_limit_fn_unchanged(monkeypatch):
     monkeypatch.setattr(process_module, "_euid", lambda: 501)
-    assert spawn_identity_kwargs() == {}
+
+    def limit() -> None:
+        return None
+
+    assert process_module.make_preexec_fn(limit) is limit
+    assert process_module.make_preexec_fn(None) is None
 
 
-def test_fail_closed_when_flag_set_and_non_root(monkeypatch):
+def test_preexec_fail_closed_when_flag_set_and_non_root(monkeypatch):
     monkeypatch.setattr(process_module, "_euid", lambda: 501)
     monkeypatch.setenv(FLAG, "1")
     with pytest.raises(PrivilegeDropUnavailableError):
-        spawn_identity_kwargs()
+        process_module.make_preexec_fn(lambda: None)
+    with pytest.raises(PrivilegeDropUnavailableError):
+        process_module.make_preexec_fn(None)
 
 
-def test_flag_set_and_root_returns_kwargs(monkeypatch):
+def test_preexec_flag_set_and_root_composes(monkeypatch):
     _as_root(monkeypatch)
     monkeypatch.setenv(FLAG, "1")
-    assert spawn_identity_kwargs()["user"] == 65534
+    assert callable(process_module.make_preexec_fn(None))
+
+
+def test_preexec_root_call_order(monkeypatch):
+    _as_root(monkeypatch)
+    calls = _record_syscalls(monkeypatch)
+    fn = process_module.make_preexec_fn(_limit_recording(calls))
+    assert fn is not None
+    fn()
+    assert calls == [
+        ("setgroups", []),
+        ("setgid", 65534),
+        ("setuid", 65534),
+        ("limit",),
+    ]
+
+
+def test_preexec_root_without_limit_stops_after_setuid(monkeypatch):
+    _as_root(monkeypatch)
+    calls = _record_syscalls(monkeypatch)
+    fn = process_module.make_preexec_fn(None)
+    assert fn is not None
+    fn()
+    assert [c[0] for c in calls] == ["setgroups", "setgid", "setuid"]
+
+
+def test_preexec_setgid_failure_skips_setuid_and_limit(monkeypatch):
+    _as_root(monkeypatch)
+    calls = _record_syscalls(monkeypatch, fail="setgid")
+    fn = process_module.make_preexec_fn(_limit_recording(calls))
+    assert fn is not None
+    with pytest.raises(PermissionError):
+        fn()
+    assert [c[0] for c in calls] == ["setgroups"]
+
+
+def test_preexec_setuid_failure_propagates_and_skips_limit(monkeypatch):
+    _as_root(monkeypatch)
+    calls = _record_syscalls(monkeypatch, fail="setuid")
+    fn = process_module.make_preexec_fn(_limit_recording(calls))
+    assert fn is not None
+    with pytest.raises(PermissionError):
+        fn()
+    assert ("limit",) not in calls
+
+
+def test_preexec_child_never_consults_euid_or_env(monkeypatch):
+    _as_root(monkeypatch)
+    calls = _record_syscalls(monkeypatch)
+    fn = process_module.make_preexec_fn(_limit_recording(calls))
+    assert fn is not None
+
+    def _boom() -> int:
+        raise AssertionError("child consulted _euid")
+
+    monkeypatch.setattr(process_module, "_euid", _boom)
+    monkeypatch.delenv(FLAG, raising=False)
+    fn()
+    assert calls[-1] == ("limit",)
 
 
 # --- workdir ownership ----------------------------------------------------
@@ -147,20 +235,39 @@ async def test_spawn_kwargs_as_root(monkeypatch, tmp_path):
             ["true"], cwd=str(tmp_path), env={}, timeout_s=5, limit_fn=limit
         )
     _args, kwargs = spy.calls[0]
-    assert kwargs["user"] == 65534
-    assert kwargs["group"] == 65534
-    assert kwargs["extra_groups"] == []
+    assert not {"user", "group", "extra_groups"} & kwargs.keys()
     assert kwargs["start_new_session"] is True
-    assert kwargs["preexec_fn"] is limit
+    assert callable(kwargs["preexec_fn"])
+    assert kwargs["preexec_fn"] is not limit
+
+    # The captured preexec runs the drop, then the limit function last.
+    order: list[str] = []
+    monkeypatch.setattr(os, "setgroups", lambda g: order.append("setgroups"))
+    monkeypatch.setattr(os, "setgid", lambda g: order.append("setgid"))
+    monkeypatch.setattr(os, "setuid", lambda u: order.append("setuid"))
+    fn = process_module.make_preexec_fn(lambda: order.append("limit"))
+    assert fn is not None
+    fn()
+    assert order == ["setgroups", "setgid", "setuid", "limit"]
 
 
 async def test_spawn_kwargs_as_non_root(monkeypatch, tmp_path):
     monkeypatch.setattr(process_module, "_euid", lambda: 501)
     spy, _ = _install_spies(monkeypatch)
+
+    def limit() -> None:
+        return None
+
+    with pytest.raises(_Sentinel):
+        await run_in_process_group(
+            ["true"], cwd=str(tmp_path), env={}, timeout_s=5, limit_fn=limit
+        )
     with pytest.raises(_Sentinel):
         await run_in_process_group(["true"], cwd=str(tmp_path), env={}, timeout_s=5)
-    _args, kwargs = spy.calls[0]
-    assert not {"user", "group", "extra_groups"} & kwargs.keys()
+    for _args, kwargs in spy.calls:
+        assert not {"user", "group", "extra_groups"} & kwargs.keys()
+    assert spy.calls[0][1]["preexec_fn"] is limit
+    assert spy.calls[1][1]["preexec_fn"] is None
 
 
 # --- executors as root ----------------------------------------------------
@@ -172,7 +279,8 @@ async def test_python_executor_as_root_chowns_before_spawn(monkeypatch):
     with pytest.raises(_Sentinel):
         await SubprocessPythonExecutor().run("x = 1\n", "", timeout_s=5)
     args, kwargs = spy.calls[0]
-    assert kwargs["user"] == 65534
+    assert not {"user", "group", "extra_groups"} & kwargs.keys()
+    assert callable(kwargs["preexec_fn"])
     assert list(args[:2]) == ["python3", "-S"]
     assert spy.chowns_at_call[0] >= 2
     names = {Path(c[0]).name for c in chowns}
@@ -198,7 +306,8 @@ async def test_go_executor_as_root_chowns_tree_before_build(monkeypatch):
     with pytest.raises(_Sentinel):
         await SubprocessGoExecutor().run("package main\n", "", timeout_s=5)
     args, kwargs = spy.calls[0]
-    assert kwargs["user"] == 65534
+    assert not {"user", "group", "extra_groups"} & kwargs.keys()
+    assert callable(kwargs["preexec_fn"])
     assert list(args[:2]) == ["go", "build"]
     names = {Path(c[0]).name for c in chowns}
     assert {"main.go", "go.mod", "gocache", "gomodcache"} <= names
@@ -300,3 +409,22 @@ async def test_go_executor_rejects_new_denied_import(monkeypatch):
 
 def test_go_backend_uses_prepare_workdir():
     assert "prepare_workdir" in Path(go_backend.__file__).read_text()
+
+
+def test_no_source_passes_identity_kwargs_to_subprocess_spawn():
+    root = Path(__file__).resolve().parents[2]
+    offenders: list[str] = []
+    for base in ("src/algorunner", "scripts"):
+        for path in (root / base).rglob("*.py"):
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+                if name not in {"create_subprocess_exec", "create_subprocess_shell"}:
+                    continue
+                for kw in node.keywords:
+                    if kw.arg is None or kw.arg in {"user", "group", "extra_groups"}:
+                        offenders.append(f"{path}:{node.lineno} {kw.arg or '**'}")
+    assert offenders == []
