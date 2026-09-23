@@ -26,7 +26,9 @@ It is reused from `broker.state.checkpointer`, set exactly once at
 WORKER_STARTUP by `worker/broker.py`'s `_on_worker_startup` hook.
 """
 
+import asyncio
 import logging
+import time
 from uuid import UUID
 
 from langgraph.types import Command
@@ -35,6 +37,7 @@ from algorunner.config import settings
 from algorunner.schemas.task import TaskError, TaskStatus
 from algorunner.storage.postgres import get_pool
 from algorunner.storage.tasks import (
+    add_active_execution_seconds,
     get_task,
     update_task_clarification,
     update_task_completed,
@@ -68,6 +71,41 @@ async def _handle_result_or_pause(task_id: str, result_state: dict) -> None:
     await update_task_completed(_pool, UUID(task_id), result=result_state.get("result"))
 
 
+async def _invoke_with_budget(graph, payload, config: dict, task_id: str) -> dict | None:
+    """Run one graph invocation bounded by the remaining global time budget
+    (D-08, INFRA-04). The budget is cumulative ACTIVE execution time across
+    all invocations (initial run and clarification resumes); time parked in
+    awaiting_clarification is never counted because it only accrues around
+    the ainvoke call itself. Returns None if the budget is exhausted (the
+    task is already marked FAILED with GLOBAL_TIMEOUT)."""
+    task = await get_task(_pool, UUID(task_id))
+    used = task.active_execution_seconds if task is not None else 0.0
+    remaining = settings.global_timeout_s - used
+    timeout_error = TaskError(code="GLOBAL_TIMEOUT", message="Solve time budget exhausted")
+    if remaining <= 0:
+        await update_task_failed(_pool, UUID(task_id), timeout_error)
+        return None
+
+    started = time.monotonic()
+    try:
+        return await asyncio.wait_for(
+            graph.ainvoke(
+                payload,
+                config,
+                # ainvoke()'s default durability is "async", which can lose a
+                # just-completed checkpoint write on worker crash. "sync"
+                # preserves the "resume from last completed node" guarantee.
+                durability="sync",
+            ),
+            timeout=remaining,
+        )
+    except asyncio.TimeoutError:
+        await update_task_failed(_pool, UUID(task_id), timeout_error)
+        return None
+    finally:
+        await add_active_execution_seconds(_pool, UUID(task_id), time.monotonic() - started)
+
+
 @broker.task
 async def solve_problem(task_id: str) -> None:
     # Deferred import: preserves the worker.tasks <-> graph.build
@@ -92,35 +130,31 @@ async def solve_problem(task_id: str) -> None:
         # constructing a fresh one and calling .setup() per invocation.
         graph = build_pipeline_graph(broker.state.checkpointer)
 
-        result_state = await graph.ainvoke(
-            {
-                "task_id": task_id,
-                "problem_text": task.problem_text,
-                "language": task.language.value,
-                "examples": [example.model_dump() for example in task.examples],
-                "analysis": None,
-                "clarification_rounds": 0,
-                "clarification_answer": None,
-                "assumption_stated": None,
-                "approaches": [],
-                "solution": None,
-                "python_execution": None,
-                "go_execution": None,
-                "review": None,
-                "review_history": [],
-                "iterations": 0,
-                "max_iterations": settings.max_iterations,
-                "result": None,
-                "error": None,
-            },
-            config={"configurable": {"thread_id": task_id}},
-            # RESEARCH.md State of the Art: ainvoke()'s default durability is
-            # "async" (checkpoint writes persisted while the next step
-            # executes), which can lose a just-completed checkpoint write on
-            # worker crash. "sync" preserves the "resume from last completed
-            # node" guarantee this architecture depends on.
-            durability="sync",
+        initial_state = {
+            "task_id": task_id,
+            "problem_text": task.problem_text,
+            "language": task.language.value,
+            "examples": [example.model_dump() for example in task.examples],
+            "analysis": None,
+            "clarification_rounds": 0,
+            "clarification_answer": None,
+            "assumption_stated": None,
+            "approaches": [],
+            "solution": None,
+            "python_execution": None,
+            "go_execution": None,
+            "review": None,
+            "review_history": [],
+            "iterations": 0,
+            "max_iterations": settings.max_iterations,
+            "result": None,
+            "error": None,
+        }
+        result_state = await _invoke_with_budget(
+            graph, initial_state, {"configurable": {"thread_id": task_id}}, task_id
         )
+        if result_state is None:
+            return
 
         await _handle_result_or_pause(task_id, result_state)
     except Exception as exc:  # CR-01
@@ -142,11 +176,11 @@ async def resume_task_with_clarification(task_id: str, answer: str) -> None:
 
     try:
         graph = build_pipeline_graph(broker.state.checkpointer)
-        result_state = await graph.ainvoke(
-            Command(resume=answer),
-            config={"configurable": {"thread_id": task_id}},
-            durability="sync",
+        result_state = await _invoke_with_budget(
+            graph, Command(resume=answer), {"configurable": {"thread_id": task_id}}, task_id
         )
+        if result_state is None:
+            return
         await _handle_result_or_pause(task_id, result_state)
     except Exception as exc:  # CR-01
         await update_task_failed(
