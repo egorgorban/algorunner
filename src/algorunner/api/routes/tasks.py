@@ -6,7 +6,7 @@ from psycopg_pool import AsyncConnectionPool
 from algorunner.api.dependencies import get_pg_pool
 from algorunner.schemas.task import TaskCreateResponse, TaskRecord, TaskStatus, TaskSubmission
 from algorunner.storage.tasks import get_task, insert_task
-from algorunner.worker.tasks import solve_problem_stub
+from algorunner.worker.tasks import solve_problem
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 
@@ -20,7 +20,7 @@ async def create_task(
     # autocommit=True on the pool, insert_task's INSERT is already
     # committed by the time this call returns.
     await insert_task(pool, task_id, body)
-    await solve_problem_stub.kiq(str(task_id))
+    await solve_problem.kiq(str(task_id))
     return TaskCreateResponse(task_id=task_id, status=TaskStatus.QUEUED)
 
 

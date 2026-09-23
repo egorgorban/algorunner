@@ -2,8 +2,7 @@ from uuid import uuid4
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-import algorunner.graph.build as graph_build
-from algorunner.graph.build import build_stub_graph
+from algorunner.graph.build import build_pipeline_graph
 
 
 async def _checkpointer_for(pg_pool):
@@ -12,63 +11,55 @@ async def _checkpointer_for(pg_pool):
     return checkpointer
 
 
-async def test_build_stub_graph_happy_path_sets_result(pg_pool, monkeypatch):
-    async def _no_sleep(*args, **kwargs):
-        return None
+def _initial_state(thread_id: str, problem_text: str) -> dict:
+    return {
+        "task_id": thread_id,
+        "problem_text": problem_text,
+        "language": "en",
+        "examples": [],
+        "analysis": None,
+        "clarification_rounds": 0,
+        "assumption_stated": None,
+        "approaches": [],
+        "solution": None,
+        "python_execution": None,
+        "go_execution": None,
+        "review": None,
+        "review_history": [],
+        "iterations": 0,
+        "max_iterations": 5,
+        "result": None,
+        "error": None,
+    }
 
-    monkeypatch.setattr(graph_build.asyncio, "sleep", _no_sleep)
 
+async def test_build_pipeline_graph_happy_path_sets_analysis_result(pg_pool, mock_openai_parse):
     checkpointer = await _checkpointer_for(pg_pool)
-    graph = build_stub_graph(checkpointer)
+    graph = build_pipeline_graph(checkpointer)
 
     thread_id = str(uuid4())
     result_state = await graph.ainvoke(
-        {"task_id": thread_id, "problem_text": "two sum", "result": None, "error": None},
+        _initial_state(thread_id, "two sum"),
         config={"configurable": {"thread_id": thread_id}},
+        durability="sync",
     )
 
-    assert result_state["result"] is not None
     assert result_state["error"] is None
+    assert result_state["result"]["analysis"] is not None
+    assert result_state["analysis"] is not None
 
 
-async def test_build_stub_graph_fail_test_marker_sets_error(pg_pool, monkeypatch):
-    async def _no_sleep(*args, **kwargs):
-        return None
-
-    monkeypatch.setattr(graph_build.asyncio, "sleep", _no_sleep)
-
+async def test_build_pipeline_graph_persists_checkpoint_row_to_real_postgres(
+    pg_pool, mock_openai_parse
+):
     checkpointer = await _checkpointer_for(pg_pool)
-    graph = build_stub_graph(checkpointer)
-
-    thread_id = str(uuid4())
-    result_state = await graph.ainvoke(
-        {
-            "task_id": thread_id,
-            "problem_text": "two sum FAIL_TEST",
-            "result": None,
-            "error": None,
-        },
-        config={"configurable": {"thread_id": thread_id}},
-    )
-
-    assert result_state["result"] is None
-    assert result_state["error"] is not None
-    assert result_state["error"]["code"] == "SIMULATED_FAILURE"
-
-
-async def test_build_stub_graph_persists_checkpoint_row_to_real_postgres(pg_pool, monkeypatch):
-    async def _no_sleep(*args, **kwargs):
-        return None
-
-    monkeypatch.setattr(graph_build.asyncio, "sleep", _no_sleep)
-
-    checkpointer = await _checkpointer_for(pg_pool)
-    graph = build_stub_graph(checkpointer)
+    graph = build_pipeline_graph(checkpointer)
 
     thread_id = str(uuid4())
     await graph.ainvoke(
-        {"task_id": thread_id, "problem_text": "two sum", "result": None, "error": None},
+        _initial_state(thread_id, "two sum"),
         config={"configurable": {"thread_id": thread_id}},
+        durability="sync",
     )
 
     async with pg_pool.connection() as conn:
