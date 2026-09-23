@@ -8,8 +8,8 @@
 ### Intake
 
 - [x] **INTAKE-01**: User submits a problem description (English or Russian text, optional examples/tests) via the API
-- [ ] **INTAKE-02**: Problem Analyzer extracts the task's constraints, input/output shape, and intent from free-text input
-- [ ] **INTAKE-03**: Problem Analyzer assigns a difficulty rating (Easy/Medium/Hard)
+- [x] **INTAKE-02**: Problem Analyzer extracts the task's constraints, input/output shape, and intent from free-text input
+- [x] **INTAKE-03**: Problem Analyzer assigns a difficulty rating (Easy/Medium/Hard)
 - [ ] **INTAKE-04**: When the problem description is ambiguous or underspecified, the task transitions to `awaiting_clarification` status instead of guessing
 - [ ] **INTAKE-05**: User can submit a clarification answer against an `awaiting_clarification` task via a dedicated API endpoint, resuming the same task from its checkpointed state
 
@@ -55,7 +55,7 @@
 - [ ] **ORCH-01**: The full pipeline (Analyzer → Strategist → Solver → Code Generator → Test Generator → Executors → Reviewer → correction loop → Editorial Writer) runs as a LangGraph StateGraph with deterministic transitions and LLM reasoning bounded to specific nodes
 - [x] **ORCH-02**: Inter-node data (analysis, approaches, code, review results) is validated via Pydantic structured-output schemas
 - [x] **ORCH-03**: Each OpenAI-backed node's model is configurable independently via env/config (e.g. cheap model for analysis/review, strong model for solving/finalization)
-- [ ] **ORCH-04**: LangGraph execution state is checkpointed to PostgreSQL so an interrupted run (including one paused on `awaiting_clarification`) can resume from where it left off
+- [x] **ORCH-04**: LangGraph execution state is checkpointed to PostgreSQL so an interrupted run (including one paused on `awaiting_clarification`) can resume from where it left off
 
 ### API & Realtime
 
@@ -139,8 +139,8 @@ Explicitly excluded. Documented to prevent scope creep.
 | DATA-01 | Phase 1 | Complete |
 | INFRA-01 | Phase 1 | Complete |
 | INFRA-02 | Phase 1 | Complete |
-| INTAKE-02 | Phase 2 | Pending |
-| INTAKE-03 | Phase 2 | Pending |
+| INTAKE-02 | Phase 2 | Complete |
+| INTAKE-03 | Phase 2 | Complete |
 | INTAKE-04 | Phase 2 | Pending |
 | INTAKE-05 | Phase 2 | Pending |
 | STRAT-01 | Phase 2 | Pending |
@@ -159,7 +159,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | REV-04 | Phase 2 | Pending |
 | REV-05 | Phase 2 | Pending |
 | ORCH-03 | Phase 2 | Complete |
-| ORCH-04 | Phase 2 | Pending |
+| ORCH-04 | Phase 2 | Complete |
 | API-03 | Phase 2 | Pending |
 | INFRA-03 | Phase 2 | Complete |
 | INFRA-04 | Phase 2 | Pending |
