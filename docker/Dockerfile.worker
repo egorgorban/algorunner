@@ -21,4 +21,17 @@ COPY go-template ./go-template
 
 RUN uv sync --frozen
 
+# Build-time guard (CR-01): executor children run as uid/gid 65534, so that
+# uid must be able to execute the venv interpreter and the Go toolchain.
+# Fails the build now instead of surfacing as executor failures at runtime.
+RUN python3 -c "import subprocess; \
+[subprocess.run(cmd, user=65534, group=65534, extra_groups=[], check=True, env={'HOME': '/tmp'}) \
+for cmd in (['/app/.venv/bin/python3', '-S', '-c', 'import math'], ['/usr/local/go/bin/go', 'version'])]"
+
+# Fail closed (CR-01): the executors drop generated code to uid 65534, which
+# needs a root worker. If the worker ever runs as non-root, executor spawns
+# raise PrivilegeDropUnavailableError instead of silently running generated
+# code under the worker's own uid. Do NOT add a USER directive.
+ENV ALGORUNNER_REQUIRE_PRIVILEGE_DROP=1
+
 CMD ["uv", "run", "taskiq", "worker", "algorunner.worker.tasks:broker", "--workers", "1"]

@@ -62,6 +62,10 @@ services:
       DATABASE_URL: postgresql://algorunner:algorunner@postgres:5432/algorunner
       REDIS_URL: redis://redis:6379
       OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY must be set}
+    # Generated-code children run as uid 65534; block privilege gain through
+    # setuid-root binaries present in the base image (CR-01).
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   garage-meta:
