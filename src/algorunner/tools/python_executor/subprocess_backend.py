@@ -5,16 +5,15 @@ documented `Popen` kwarg pass-through) with the mandatory additions this
 plan's `<action>` calls out beyond the base template:
 
 - a static AST-based import denylist checked BEFORE any subprocess spawns
-- `_limit_resources()` — CPU/address-space/process-count caps, deliberately
+- `_PYTHON_LIMITS` (via `tools.process.make_limit_fn`) — CPU/address-space/process-count caps, deliberately
   NOT the file-size-zero limit CLAUDE.md's "What NOT to Use" section warns
   against (SIGXFSZ on any file write, including inherited stderr, produces
   confusing false "crashes")
 - a minimal, non-inherited subprocess environment (T-02-05-02: generated
   code must never read `OPENAI_API_KEY`/`DATABASE_URL`/`REDIS_URL` via
   `os.environ`, even if the denylist is somehow bypassed)
-- whole-process-group timeout kill (`start_new_session=True` +
-  `os.killpg`), not just the direct child PID, with an explicit `SIGKILL`
-  fallback and a final `await proc.wait()` reap so no zombie is left behind
+- whole-process-group kill on every exit path (timeout AND cancellation),
+  owned by `tools.process.run_in_process_group`
 
 `tests` is literal source appended directly after `code` (matching Pattern
 3's `script.write_text(code + "\\n\\n" + tests)` exactly) — e.g. a sequence
@@ -23,16 +22,14 @@ Python's default excepthook prints to stderr and exits non-zero on its own;
 no separate pass/fail protocol is needed.
 """
 
-import asyncio
 import ast
 import os
-import resource
-import signal
 import tempfile
 import time
 from pathlib import Path
 
 from algorunner.schemas.execution import ExecutionResult
+from algorunner.tools.process import make_limit_fn, run_in_process_group
 
 _DENYLISTED_IMPORTS = {
     "os",
@@ -71,28 +68,14 @@ def _check_denylist(code: str) -> str | None:
     return None
 
 
-def _limit_resources() -> None:
-    # Each limit is applied independently and defensively: macOS/Darwin's
-    # kernel does not back every POSIX rlimit the same way Linux does (e.g.
-    # RLIMIT_AS reliably raises "ValueError: current limit exceeds maximum
-    # limit" on this project's macOS dev hosts even though the value passed
-    # is well-formed) — a limit that the host kernel silently doesn't
-    # support must not abort subprocess creation entirely and take every
-    # OTHER limit down with it. Production containers run Linux, where all
-    # three are enforced; this project's local dev/test loop runs on macOS,
-    # where best-effort degrades instead of crashing every executor call.
-    for limit, value in (
-        (resource.RLIMIT_CPU, (5, 5)),
-        (resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024)),
-        (resource.RLIMIT_NPROC, (0, 0)),  # blocks fork() — no fork bombs
-    ):
-        try:
-            resource.setrlimit(limit, value)
-        except (ValueError, OSError):
-            pass
-    # Deliberately NOT setting the file-size-zero limit — see module
-    # docstring and CLAUDE.md "What NOT to Use" (SIGXFSZ footgun on any
-    # file write, including stderr).
+# CPU/address-space/process-count caps. RLIMIT_NPROC=0 blocks fork() (no fork
+# bombs); no file-size limit is set (see `make_limit_fn`).
+_PYTHON_LIMITS = make_limit_fn(
+    cpu_s=5,
+    address_space_bytes=512 * 1024 * 1024,
+    open_files=256,
+    max_processes=0,
+)
 
 
 class SubprocessPythonExecutor:
@@ -118,45 +101,28 @@ class SubprocessPythonExecutor:
             script = Path(tmp) / "solution.py"
             script.write_text(code + "\n\n" + tests)
 
-            proc = await asyncio.create_subprocess_exec(
-                "python3",
-                str(script),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            out = await run_in_process_group(
+                ["python3", str(script)],
                 cwd=tmp,
                 env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
-                start_new_session=True,
-                preexec_fn=_limit_resources,
+                timeout_s=timeout_s,
+                limit_fn=_PYTHON_LIMITS,
             )
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout_s
-                )
-            except asyncio.TimeoutError:
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-                await asyncio.sleep(0.5)
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                await proc.wait()  # reap — never leave a zombie
-                duration_ms = int((time.monotonic() - started) * 1000)
+            if out is None:
                 return ExecutionResult(
                     passed=False,
                     stdout="",
                     stderr="timed out",
                     exit_code=-1,
-                    duration_ms=duration_ms,
+                    duration_ms=int((time.monotonic() - started) * 1000),
                 )
+            stdout, stderr, returncode = out
 
             duration_ms = int((time.monotonic() - started) * 1000)
             return ExecutionResult(
-                passed=proc.returncode == 0,
+                passed=returncode == 0,
                 stdout=stdout.decode(errors="replace"),
                 stderr=stderr.decode(errors="replace"),
-                exit_code=proc.returncode,
+                exit_code=returncode,
                 duration_ms=duration_ms,
             )

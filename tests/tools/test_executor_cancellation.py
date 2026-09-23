@@ -249,5 +249,5 @@ async def test_go_executor_passes_limits_only_to_run_step(monkeypatch):
     assert result.passed
     assert len(calls) == 2
     assert calls[0]["args"][:2] == ["go", "build"]
-    assert calls[0]["limit_fn"] is None
+    assert calls[0].get("limit_fn") is None
     assert callable(calls[1]["limit_fn"])

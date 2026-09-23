@@ -15,21 +15,23 @@ model (a caller wanting `os.Exit(1)` inside `tests` must import "os" in
 `code` already declares).
 
 Both the `go build` step and the compiled binary's run step go through the
-SAME process-group timeout-kill/reap helper (`_run_with_timeout`) — a hung
+SAME process-group kill/reap helper (`tools.process.run_in_process_group`,
+which also kills on cancellation) — a hung
 `go build` needs the same kill treatment as a hung generated binary, per
 this plan's `<action>`.
 """
 
-import asyncio
+import math
 import os
 import re
 import shutil
-import signal
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from algorunner.schemas.execution import ExecutionResult
+from algorunner.tools.process import make_limit_fn, run_in_process_group
 
 _DENYLISTED_GO_IMPORTS = ("net", "os/exec", "syscall", "unsafe")
 
@@ -62,36 +64,22 @@ def _check_go_denylist(code: str) -> str | None:
     return None
 
 
-async def _run_with_timeout(
-    args: list[str], *, cwd: str, env: dict[str, str], timeout_s: float
-) -> tuple[bytes, bytes, int] | None:
-    """Runs `args` under its own process group, killing the whole group on
-    timeout. Returns `(stdout, stderr, returncode)`, or `None` on timeout —
-    the caller builds the timeout `ExecutionResult`. Shared by both the
-    `go build` step and the compiled binary's run step."""
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=cwd,
-        env=env,
-        start_new_session=True,
+def _go_run_limits(timeout_s: float) -> Callable[[], None]:
+    """rlimits for the compiled Go binary (never for `go build`).
+
+    CPU is only a backstop far above the wall-clock kill: multi-threaded Go
+    GC can burn more CPU-seconds than wall-seconds, so a tight cap could kill
+    a correct solution. Address space is deliberately generous because the Go
+    runtime reserves large virtual ranges up front (do not lower it toward the
+    Python 512 MiB). NPROC is omitted because the Go runtime creates OS
+    threads and NPROC=0 would crash it.
+    """
+    return make_limit_fn(
+        cpu_s=max(2 * math.ceil(timeout_s), 2),
+        address_space_bytes=4 * 1024 * 1024 * 1024,
+        open_files=256,
+        max_processes=None,
     )
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
-    except asyncio.TimeoutError:
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        await asyncio.sleep(0.5)
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        await proc.wait()  # reap — never leave a zombie
-        return None
-    return stdout, stderr, proc.returncode
 
 
 def _timeout_result(started: float) -> ExecutionResult:
@@ -141,7 +129,7 @@ class SubprocessGoExecutor:
                 "GOMODCACHE": str(gomodcache),
                 "HOME": str(tmp),
             }
-            build_out = await _run_with_timeout(
+            build_out = await run_in_process_group(
                 ["go", "build", "-o", str(binary), str(main_go)],
                 cwd=str(tmp),
                 env=build_env,
@@ -159,8 +147,12 @@ class SubprocessGoExecutor:
                     duration_ms=int((time.monotonic() - started) * 1000),
                 )
 
-            run_out = await _run_with_timeout(
-                [str(binary)], cwd=str(tmp), env={}, timeout_s=timeout_s
+            run_out = await run_in_process_group(
+                [str(binary)],
+                cwd=str(tmp),
+                env={},
+                timeout_s=timeout_s,
+                limit_fn=_go_run_limits(timeout_s),
             )
             if run_out is None:
                 return _timeout_result(started)
