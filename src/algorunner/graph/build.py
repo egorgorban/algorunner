@@ -2,10 +2,10 @@
 to Postgres (D-12).
 
 As of this plan the pipeline runs Analyzer -> Strategist -> Solver ->
-CodeGenerator -> TestGenerator -> ExecutePython -> ExecuteGo ->
-`finalize_success`; later plans (02-06/02-07) extend this same graph with
-the Reviewer node and correction-loop conditional edges - this module keeps
-the injected-checkpointer convention established by Phase 1's stub graph
+CodeGenerator -> TestGenerator -> ExecutePython -> ExecuteGo -> Reviewer,
+then a bounded correction loop (`decide_after_review`) back to the Solver or
+Code Generator, ending in `finalize_success` or `finalize_failed`. This
+module keeps the injected-checkpointer convention established by Phase 1's stub graph
 (the checkpointer is never constructed here, only wired in -
 `worker/tasks.py` owns construction).
 
@@ -23,10 +23,12 @@ from langgraph.graph.state import CompiledStateGraph
 
 from algorunner.agents.code_generator.node import code_generator_node
 from algorunner.agents.problem_analyzer.node import problem_analyzer_node
+from algorunner.agents.reviewer.node import reviewer_node
 from algorunner.agents.solution_strategist.node import solution_strategist_node
 from algorunner.agents.solver.node import solver_node
 from algorunner.agents.test_generator.node import test_generator_node
 from algorunner.graph.harness import render_go_program, render_python_program
+from algorunner.graph.routing import decide_after_review
 from algorunner.graph.state import GraphState
 from algorunner.schemas.execution import ExecutionResult
 from algorunner.tools.go_executor.subprocess_backend import SubprocessGoExecutor
@@ -100,6 +102,19 @@ async def finalize_success(state: GraphState) -> dict:
             "go_execution": (
                 state["go_execution"].model_dump() if state["go_execution"] else None
             ),
+            "review": state["review"].model_dump() if state["review"] else None,
+        }
+    }
+
+
+async def finalize_failed(state: GraphState) -> dict:
+    """Terminal FAILED result once the correction loop is exhausted (REV-05)."""
+    review = state["review"]
+    issues = [i.description for i in review.issues] if review else []
+    return {
+        "error": {
+            "code": "CORRECTION_LOOP_EXHAUSTED",
+            "message": f"Failed after {state['iterations']} iteration(s); last issues: {issues}",
         }
     }
 
@@ -113,7 +128,9 @@ def build_pipeline_graph(checkpointer: object) -> CompiledStateGraph:
     builder.add_node("test_generator", test_generator_node)
     builder.add_node("execute_python", execute_python_node)
     builder.add_node("execute_go", execute_go_node)
+    builder.add_node("reviewer", reviewer_node)
     builder.add_node("finalize_success", finalize_success)
+    builder.add_node("finalize_failed", finalize_failed)
     builder.add_edge(START, "analyzer")
     builder.add_edge("analyzer", "strategist")
     builder.add_edge("strategist", "solver")
@@ -121,6 +138,17 @@ def build_pipeline_graph(checkpointer: object) -> CompiledStateGraph:
     builder.add_edge("code_generator", "test_generator")
     builder.add_edge("test_generator", "execute_python")
     builder.add_edge("execute_python", "execute_go")
-    builder.add_edge("execute_go", "finalize_success")
+    builder.add_edge("execute_go", "reviewer")
+    builder.add_conditional_edges(
+        "reviewer",
+        decide_after_review,
+        {
+            "finalize_success": "finalize_success",
+            "finalize_failed": "finalize_failed",
+            "solver": "solver",
+            "code_generator": "code_generator",
+        },
+    )
     builder.add_edge("finalize_success", END)
+    builder.add_edge("finalize_failed", END)
     return builder.compile(checkpointer=checkpointer)

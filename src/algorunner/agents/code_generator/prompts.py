@@ -15,6 +15,7 @@ Same DATA-delimiting prompt-injection framing as `solver/prompts.py`
 as data.
 """
 
+from algorunner.agents.reviewer.prompts import format_review_history
 from algorunner.graph.state import GraphState
 from algorunner.schemas.typespec import TYPE_VOCABULARY_DOC
 
@@ -80,6 +81,7 @@ def build_code_messages(state: GraphState) -> list[dict]:
     approach = solver_output["approach"]
     analysis = state["analysis"]
     assumption = state["assumption_stated"]
+    history = format_review_history(state.get("review_history") or [])
     return [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {
@@ -94,6 +96,7 @@ def build_code_messages(state: GraphState) -> list[dict]:
                 name=approach.name,
                 technique=approach.technique,
                 algorithm=solver_output["algorithm"],
-            ),
+            )
+            + history,
         },
     ]

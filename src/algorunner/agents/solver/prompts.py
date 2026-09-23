@@ -12,6 +12,7 @@ upstream-derived content, re-delimited here rather than trusted as
 instructions.
 """
 
+from algorunner.agents.reviewer.prompts import format_review_history
 from algorunner.graph.state import GraphState
 
 _SYSTEM_PROMPT = """\
@@ -48,6 +49,7 @@ def build_solver_messages(state: GraphState) -> list[dict]:
     """Builds the chat-completion messages for the Solver's structured-
     output call. Pure function of state — no I/O, no LLM call here."""
     approach = state["approaches"][0]
+    history = format_review_history(state.get("review_history") or [])
     return [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {
@@ -56,6 +58,7 @@ def build_solver_messages(state: GraphState) -> list[dict]:
                 name=approach.name,
                 technique=approach.technique,
                 summary=approach.summary,
-            ),
+            )
+            + history,
         },
     ]

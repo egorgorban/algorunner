@@ -13,6 +13,7 @@ from algorunner.agents.solver.node import SolverOutput
 from algorunner.agents.test_generator.node import GeneratedTests, TestCase
 from algorunner.api.main import app
 from algorunner.schemas.problem import ProblemAnalysis
+from algorunner.schemas.review import ReviewResult
 from algorunner.schemas.solution import Approach, ApproachList, EntryParam, EntryPoint
 from algorunner.storage.migrate import apply_pending_migrations
 from algorunner.storage.postgres import get_pool
@@ -166,6 +167,15 @@ def mock_pipeline_openai(monkeypatch):
         normalized_examples=[],
     )
 
+    # Sixth and final call: the Reviewer (both executions pass for the
+    # canned correct Two Sum, so the LLM verdict is consulted and passes).
+    passing_review = ReviewResult(
+        passed=True,
+        issues=[],
+        required_changes=[],
+        complexity_reasoning="One loop over n items with O(1) dict operations gives O(n) time.",
+    )
+
     def _completion(parsed):
         return SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(parsed=parsed, refusal=None))]
@@ -181,6 +191,7 @@ def mock_pipeline_openai(monkeypatch):
                         _completion(solver_output),
                         _completion(code_gen_output),
                         _completion(generated_tests),
+                        _completion(passing_review),
                     ]
                 )
             )

@@ -166,6 +166,9 @@ async def test_build_pipeline_graph_runs_full_pipeline_through_execution(
     assert result_state["go_execution"].passed is True, result_state["go_execution"].stderr
 
     result = result_state["result"]
+    assert result["review"]["passed"] is True
+    assert result_state["iterations"] == 1
+    assert len(result_state["review_history"]) == 1
     assert result["python_execution"]["passed"] is True
     assert result["go_execution"]["passed"] is True
     assert result["solution"]["entry_point"]["python_name"] == "two_sum"

@@ -17,6 +17,7 @@ Same DATA-delimiting prompt-injection framing as the other agent prompts
 
 from collections.abc import Sequence
 
+from algorunner.agents.reviewer.prompts import format_review_history
 from algorunner.config import settings
 from algorunner.graph.state import GraphState
 from algorunner.schemas.typespec import TYPE_VOCABULARY_DOC
@@ -100,6 +101,7 @@ def build_test_messages(
         )
     else:
         pending = "(none)"
+    history = format_review_history(state.get("review_history") or [])
     return [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {
@@ -113,6 +115,7 @@ def build_test_messages(
                 signature=_signature(solution.entry_point),
                 unordered=str(solution.entry_point.unordered_result).lower(),
                 pending=pending,
-            ),
+            )
+            + history,
         },
     ]

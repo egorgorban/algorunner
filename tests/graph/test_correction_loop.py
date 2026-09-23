@@ -1,5 +1,15 @@
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+from uuid import uuid4
+
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.errors import GraphRecursionError
+
+import algorunner.llm.client_factory as client_factory_module
+from algorunner.graph.build import build_pipeline_graph
 from algorunner.graph.routing import decide_after_review
 from algorunner.schemas.review import Issue, ReviewResult
+from tests.graph.test_build import _initial_state
 
 
 def _review(passed: bool, *issues: Issue) -> ReviewResult:
@@ -55,3 +65,68 @@ def test_routing_solver_has_priority_over_code_generator():
 
 def test_routing_missing_review_is_never_success():
     assert decide_after_review(_state(None, 1)) == "finalize_failed"
+
+
+# ------------------------------------------------- whole-graph integration
+
+
+async def test_always_failing_review_exhausts_max_iterations_cleanly(
+    pg_pool, mock_pipeline_openai, monkeypatch
+):
+    fake_client = mock_pipeline_openai
+    parse = fake_client.chat.completions.parse
+    # Drain the fixture's five first-pass completions (analyzer, strategist,
+    # solver, code_generator, test_generator); the sixth (passing review) is
+    # unused because the dispatcher below replaces the whole mock.
+    by_type: dict[str, object] = {}
+    for _ in range(5):
+        completion = await parse()
+        by_type[type(completion.choices[0].message.parsed).__name__] = completion
+
+    failing = ReviewResult(
+        passed=False,
+        issues=[_issue("algorithm_soundness")],
+        required_changes=["rethink the algorithm"],
+        complexity_reasoning="Not convinced the pass is single.",
+    )
+    failing_completion = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(parsed=failing, refusal=None))]
+    )
+    calls: list[str] = []
+    solver_prompts: list[list[dict]] = []
+
+    async def dispatch(**kwargs):
+        name = kwargs["response_format"].__name__
+        calls.append(name)
+        if name == "SolverOutput":
+            solver_prompts.append(kwargs["messages"])
+        if name == "ReviewResult":
+            return failing_completion
+        return by_type[name]
+
+    fake_client.chat.completions.parse = AsyncMock(side_effect=dispatch)
+    monkeypatch.setattr(client_factory_module, "get_client", lambda: fake_client)
+
+    checkpointer = AsyncPostgresSaver(pg_pool)
+    await checkpointer.setup()
+    graph = build_pipeline_graph(checkpointer)
+    thread_id = str(uuid4())
+    state = _initial_state(thread_id, "two sum")
+    state["max_iterations"] = 2
+
+    try:
+        result_state = await graph.ainvoke(
+            state, config={"configurable": {"thread_id": thread_id}}, durability="sync"
+        )
+    except GraphRecursionError:
+        raise AssertionError("correction loop hit the recursion limit") from None
+
+    assert result_state["error"]["code"] == "CORRECTION_LOOP_EXHAUSTED"
+    assert result_state["result"] is None
+    assert result_state["iterations"] == 2
+    assert len(result_state["review_history"]) == 2
+    assert calls.count("SolverOutput") > 1  # loop really re-entered the solver
+    assert calls.count("ReviewResult") == 2
+    # full history reached the second solver prompt (D-06, REV-04)
+    assert "Attempt 1" in solver_prompts[1][-1]["content"]
+    assert "Attempt 1" not in solver_prompts[0][-1]["content"]
