@@ -19,10 +19,10 @@ key-files:
     - src/algorunner/worker/tasks.py
 key-decisions:
   - "Budget accrues only around ainvoke calls, so awaiting_clarification wait time is excluded by construction (RESEARCH A1)"
-status: partial
+status: complete
 completed: 2026-09-24
 actuals:
-  tasks: 1
+  tasks: 2
   commits: 1
 plan_head_before: dc31c29b815c79baec94ed6b7d4bbd909104a0e6
 commits: 1
@@ -35,7 +35,7 @@ commits: 1
 ## Tasks
 
 1. Task 1 (f2051e2): wrapper plus three fast tests (exhausted-budget short-circuit with `ainvoke` never called, mid-flight cancel returning in under 3s, success path accruing time). Full suite: 142 passed with `OPENAI_API_KEY=test-dummy`.
-2. Task 2 (live full-stack verification): NOT executed. It needs a real `OPENAI_API_KEY` and `docker compose up -d --build`, neither available in this worktree (ports 5432/6379 are held by the running stack). Returned as a human-verify checkpoint with manual steps. No result is claimed.
+2. Task 2 (live full-stack verification): verified by the user against the real docker stack (built from main at cdbccdd) with a real `OPENAI_API_KEY`. Two live tasks reached `completed`: a LeetCode "reduce x to zero" problem (technique: brute force, ~114s active time) and a second problem (technique: sliding window / two pointers). For both, `python_execution.passed`, `go_execution.passed` and `review.passed` were true, generated Python/Go code was a genuine implementation, and `review.complexity_reasoning` was a structural justification. The literal Two Sum script (`PHASE2_LIVE_OK`) was not run; the user accepted the two live results as sufficient. Observation: worker logs show only taskiq startup lines because graph nodes do not log progress, and a task takes ~1-2 min, so a task can look stuck in `queued`/`analyzing_problem` from outside.
 
 ## Deviations from Plan
 
