@@ -83,13 +83,14 @@ async def attempt_consume_clarification(pool: AsyncConnectionPool, task_id: UUID
 
     Returns True iff this call performed the transition. A missing task, an
     already-resumed task, or a lost race all return False, so exactly one of
-    any number of concurrent callers can enqueue the resume.
+    any number of concurrent callers can enqueue the resume. The same UPDATE
+    clears the now-answered question so it is never exposed after resume.
     """
     async with pool.connection() as conn:
         cur = await conn.execute(
             """
             UPDATE tasks
-            SET status = %s, updated_at = now()
+            SET status = %s, clarification_question = NULL, updated_at = now()
             WHERE id = %s AND status = %s
             RETURNING id
             """,

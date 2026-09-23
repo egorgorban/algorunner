@@ -5,7 +5,11 @@ from uuid import uuid4
 import pytest
 
 from algorunner.schemas.task import Language, TaskSubmission
-from algorunner.storage.tasks import insert_task, update_task_clarification
+from algorunner.storage.tasks import (
+    insert_task,
+    update_task_clarification,
+    update_task_completed,
+)
 from algorunner.worker.tasks import resume_task_with_clarification
 
 
@@ -53,6 +57,29 @@ async def test_clarification_full_flow_and_double_post_409(app_client, pg_pool, 
 
     # question is no longer pending once resumed
     assert (await app_client.get(f"/api/v1/tasks/{task_id}/clarification")).status_code == 404
+
+
+async def test_get_task_hides_question_after_answer(app_client, pg_pool, kiq_mock):
+    task_id = await _awaiting_task(pg_pool, "Which array?")
+
+    pending = await app_client.get(f"/api/v1/tasks/{task_id}")
+    assert pending.status_code == 200
+    assert pending.json()["status"] == "awaiting_clarification"
+    assert pending.json()["clarification_question"] == "Which array?"
+
+    posted = await app_client.post(
+        f"/api/v1/tasks/{task_id}/clarification", json={"answer": "the input list"}
+    )
+    assert posted.status_code == 202
+
+    resumed = (await app_client.get(f"/api/v1/tasks/{task_id}")).json()
+    assert resumed["status"] == "analyzing_problem"
+    assert resumed["clarification_question"] is None
+
+    await update_task_completed(pg_pool, task_id, {"ok": True})
+    done = (await app_client.get(f"/api/v1/tasks/{task_id}")).json()
+    assert done["status"] == "completed"
+    assert done["clarification_question"] is None
 
 
 async def test_concurrent_posts_enqueue_exactly_one_resume(app_client, pg_pool, kiq_mock):

@@ -23,7 +23,7 @@ async def test_consume_returns_true_exactly_once(pg_pool):
     assert await attempt_consume_clarification(pg_pool, task_id) is False
     task = await get_task(pg_pool, task_id)
     assert task.status == TaskStatus.ANALYZING_PROBLEM
-    assert task.clarification_question == "which array?"
+    assert task.clarification_question is None
 
 
 async def test_concurrent_consume_has_single_winner(pg_pool):
