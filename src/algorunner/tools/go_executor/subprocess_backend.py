@@ -19,6 +19,11 @@ SAME process-group kill/reap helper (`tools.process.run_in_process_group`,
 which also kills on cancellation) — a hung
 `go build` needs the same kill treatment as a hung generated binary, per
 this plan's `<action>`.
+
+The import denylist is a best-effort text scan against accidental misuse,
+NOT a security boundary (bypassable via dot-imports, `os.StartProcess`). The
+real boundary is uid separation, documented with the accepted residual risks
+in `algorunner.tools.process`.
 """
 
 import math
@@ -31,9 +36,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 from algorunner.schemas.execution import ExecutionResult
-from algorunner.tools.process import make_limit_fn, run_in_process_group
+from algorunner.tools.process import make_limit_fn, prepare_workdir, run_in_process_group
 
-_DENYLISTED_GO_IMPORTS = ("net", "os/exec", "syscall", "unsafe")
+_DENYLISTED_GO_IMPORTS = ("net", "os/exec", "syscall", "unsafe", "crypto/tls", "plugin", "C")
 
 # Repo root: subprocess_backend.py lives at
 # <repo_root>/src/algorunner/tools/go_executor/subprocess_backend.py in both
@@ -121,6 +126,10 @@ class SubprocessGoExecutor:
             gomodcache = tmp / "gomodcache"
             gocache.mkdir(exist_ok=True)
             gomodcache.mkdir(exist_ok=True)
+
+            # Tree is fully populated: hand it to the unprivileged uid once,
+            # before any child (including `go build`) starts.
+            prepare_workdir(tmp)
 
             binary = tmp / "solution"
             build_env = {

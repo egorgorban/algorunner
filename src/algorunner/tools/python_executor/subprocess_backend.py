@@ -4,14 +4,17 @@ Follows RESEARCH.md Pattern 3 (verified against `asyncio.create_subprocess_exec`
 documented `Popen` kwarg pass-through) with the mandatory additions this
 plan's `<action>` calls out beyond the base template:
 
-- a static AST-based import denylist checked BEFORE any subprocess spawns
+- a static AST-based import denylist checked BEFORE any subprocess spawns.
+  It is a best-effort filter against accidental misuse, NOT a security
+  boundary (bypassable via getattr/`__builtins__` tricks)
 - `_PYTHON_LIMITS` (via `tools.process.make_limit_fn`) — CPU/address-space/process-count caps, deliberately
   NOT the file-size-zero limit CLAUDE.md's "What NOT to Use" section warns
   against (SIGXFSZ on any file write, including inherited stderr, produces
   confusing false "crashes")
-- a minimal, non-inherited subprocess environment (T-02-05-02: generated
-  code must never read `OPENAI_API_KEY`/`DATABASE_URL`/`REDIS_URL` via
-  `os.environ`, even if the denylist is somehow bypassed)
+- a minimal, non-inherited subprocess environment (PATH only). This only
+  stops the trivial `os.environ` read; it is not a secrecy control. The
+  actual boundary (uid separation) and the accepted residual risks are
+  documented in `algorunner.tools.process`
 - whole-process-group kill on every exit path (timeout AND cancellation),
   owned by `tools.process.run_in_process_group`
 
@@ -29,7 +32,7 @@ import time
 from pathlib import Path
 
 from algorunner.schemas.execution import ExecutionResult
-from algorunner.tools.process import make_limit_fn, run_in_process_group
+from algorunner.tools.process import make_limit_fn, prepare_workdir, run_in_process_group
 
 _DENYLISTED_IMPORTS = {
     "os",
@@ -40,7 +43,29 @@ _DENYLISTED_IMPORTS = {
     "ctypes",
     "multiprocessing",
     "threading",
+    "_thread",
+    "_socket",
+    "asyncio",
+    "builtins",
+    "ftplib",
+    "http",
+    "imaplib",
+    "importlib",
+    "nt",
+    "poplib",
+    "posix",
+    "pty",
+    "runpy",
+    "smtplib",
+    "socketserver",
+    "ssl",
+    "telnetlib",
+    "urllib",
+    "xmlrpc",
 }
+
+# Bare names denied wherever they appear (name use or attribute access).
+_DENYLISTED_NAMES = {"__import__", "__builtins__"}
 
 
 def _check_denylist(code: str) -> str | None:
@@ -55,6 +80,10 @@ def _check_denylist(code: str) -> str | None:
         # fail with a non-zero exit code and a SyntaxError on stderr.
         return None
     for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in _DENYLISTED_NAMES:
+            return node.id
+        if isinstance(node, ast.Attribute) and node.attr in _DENYLISTED_NAMES:
+            return node.attr
         if isinstance(node, ast.Import):
             for alias in node.names:
                 top_level = alias.name.split(".")[0]
@@ -100,9 +129,14 @@ class SubprocessPythonExecutor:
         with tempfile.TemporaryDirectory() as tmp:
             script = Path(tmp) / "solution.py"
             script.write_text(code + "\n\n" + tests)
+            prepare_workdir(Path(tmp))
 
             out = await run_in_process_group(
-                ["python3", str(script)],
+                # -S: no site processing, so the worker venv's site-packages
+                # (psycopg, redis, openai, httpx, taskiq, langgraph) are not
+                # importable by generated code. The harness needs only the
+                # stdlib `math` and `sys`.
+                ["python3", "-S", str(script)],
                 cwd=tmp,
                 env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
                 timeout_s=timeout_s,

@@ -1,5 +1,5 @@
-"""Single owner of child-process lifecycle and resource limits for both code
-executors (Python and Go).
+"""Single owner of child-process lifecycle, resource limits and privilege
+separation for both code executors (Python and Go).
 
 Everything that spawns, times out, kills or reaps generated-code children
 lives here, so the guarantees below hold identically for the Python run, the
@@ -9,6 +9,32 @@ Go build step and the Go run step:
 - on ANY exit path (normal, timeout, ``CancelledError`` from the global
   timeout or a worker shutdown, any other exception) the whole group is
   hard-killed and the leader is reaped (CR-02, INFRA-04, D-08).
+
+TRUST MODEL (read before relying on any control here)
+
+1. The security boundary is uid separation. The worker stays root (changing
+   the child's uid needs root; a non-root worker would need CAP_SETUID) and
+   every child runs as uid/gid 65534 with no supplementary groups. It
+   therefore cannot open ``/proc/1/environ`` or ``/proc/<worker pid>/environ``
+   where ``OPENAI_API_KEY``, ``DATABASE_URL`` and ``REDIS_URL`` live. This
+   applies only when the worker's euid is 0; otherwise (developer hosts)
+   nothing changes.
+2. The environment allowlist (PATH only for Python) merely stops the trivial
+   ``os.environ`` read. It is not a secrecy control.
+3. The import denylists and ``python3 -S`` are best-effort filters against
+   accidental misuse. They are not a secrecy or network control and are
+   bypassable (``getattr`` / ``__builtins__`` tricks in Python,
+   ``os.StartProcess`` and dot-imports in Go).
+4. Accepted v1 RESIDUAL RISKS: outbound network egress and lateral access to
+   postgres/redis with default credentials remain open. A kernel-enforced
+   control needs NET_ADMIN or CAP_SYS_ADMIN or a separate sandbox, which is
+   SEC-02/SEC-03 (v2); a uid-owner iptables rule for uid 65534 is the
+   recommended first step. All concurrent runs share uid 65534, so one run can
+   signal another. Go has no NPROC limit (the runtime needs OS threads).
+5. ``ALGORUNNER_REQUIRE_PRIVILEGE_DROP`` (set in the worker image) makes a
+   non-root worker fail loudly with ``PrivilegeDropUnavailableError`` instead
+   of silently running generated code under the worker's own uid, which would
+   re-open the /proc environ leak (D-00f: fail loudly, never downgrade).
 """
 
 import asyncio
@@ -17,8 +43,64 @@ import os
 import resource
 import signal
 from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
 _REAP_TIMEOUT_S = 5.0
+
+UNPRIVILEGED_UID = 65534
+UNPRIVILEGED_GID = 65534
+REQUIRE_PRIVILEGE_DROP_ENV = "ALGORUNNER_REQUIRE_PRIVILEGE_DROP"
+
+
+class PrivilegeDropUnavailableError(RuntimeError):
+    """Raised when the privilege drop is required but the worker is not root."""
+
+
+def _euid() -> int:
+    # Patch point for tests; every privilege decision goes through it.
+    return os.geteuid()
+
+
+def spawn_identity_kwargs() -> dict[str, Any]:
+    """`create_subprocess_exec` kwargs dropping the child to uid/gid 65534.
+
+    Only when the worker is root. If the drop is required (image flag) but the
+    worker is not root, raise instead of degrading (D-00f).
+    """
+    if _euid() == 0:
+        return {
+            "user": UNPRIVILEGED_UID,
+            "group": UNPRIVILEGED_GID,
+            "extra_groups": [],
+        }
+    if os.environ.get(REQUIRE_PRIVILEGE_DROP_ENV, "").strip().lower() in {"1", "true", "yes"}:
+        raise PrivilegeDropUnavailableError(
+            "Privilege drop is required but the worker is not root: generated "
+            "code would run under the worker's own uid and could read its "
+            "/proc environ (API key, database and redis URLs)."
+        )
+    return {}
+
+
+def prepare_workdir(path: Path) -> None:
+    """Chown `path` and everything beneath it to the unprivileged uid.
+
+    No-op unless the worker is root. Call exactly once, after the tree is
+    fully populated and before any child starts (no child-controlled symlink
+    race exists at chown time).
+    """
+    if _euid() != 0:
+        return
+    os.chown(path, UNPRIVILEGED_UID, UNPRIVILEGED_GID, follow_symlinks=False)
+    for dirpath, dirnames, filenames in os.walk(path):
+        for name in (*dirnames, *filenames):
+            os.chown(
+                os.path.join(dirpath, name),
+                UNPRIVILEGED_UID,
+                UNPRIVILEGED_GID,
+                follow_symlinks=False,
+            )
 
 
 def make_limit_fn(
@@ -89,6 +171,11 @@ async def run_in_process_group(
     generated code has no cleanup duty and a sleep in the cancel path would
     itself be a cancellation point.
     """
+    # Ordering is load-bearing: CPython applies user/group/extra_groups
+    # (setgroups, setregid, setreuid) BEFORE calling preexec_fn, so the rlimits
+    # (including NPROC=0) are set after the uid change. Reversing that would
+    # make Linux mark PF_NPROC_EXCEEDED at setuid time and fail every execve
+    # with EAGAIN.
     proc = await asyncio.create_subprocess_exec(
         *args,
         stdout=asyncio.subprocess.PIPE,
@@ -97,6 +184,7 @@ async def run_in_process_group(
         env=env,
         start_new_session=True,
         preexec_fn=limit_fn,
+        **spawn_identity_kwargs(),
     )
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
