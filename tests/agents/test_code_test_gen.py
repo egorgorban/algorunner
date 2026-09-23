@@ -3,14 +3,18 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+import algorunner.agents.test_generator.node as test_generator_node_module
 import algorunner.llm.client_factory as client_factory_module
 from algorunner.agents.code_generator.node import CodeGenOutput, code_generator_node
-from algorunner.agents.test_generator.node import (
-    GeneratedTests,
-    TestCase,
-    test_generator_node,
-)
 from algorunner.schemas.solution import Approach
+
+# `test_generator_node_module` is imported (rather than importing
+# `test_generator_node`/`TestCase` by name) because both plan-mandated names
+# match pytest's default `test_*`/`Test*` collection patterns — a direct
+# `from ... import test_generator_node, TestCase` makes pytest try to
+# collect them as tests themselves (the function requires a nonexistent
+# `state` fixture, `TestCase` has an `__init__`). Module-qualified access
+# below sidesteps the collision without renaming production code.
 
 
 def _base_state(**overrides) -> dict:
@@ -62,9 +66,12 @@ def _solver_output(**overrides) -> dict:
     return fields
 
 
-def _generated_tests(count: int) -> GeneratedTests:
-    return GeneratedTests(
-        tests=[TestCase(input=f"in-{i}", output=f"out-{i}") for i in range(count)]
+def _generated_tests(count: int) -> "test_generator_node_module.GeneratedTests":
+    return test_generator_node_module.GeneratedTests(
+        tests=[
+            test_generator_node_module.TestCase(input=f"in-{i}", output=f"out-{i}")
+            for i in range(count)
+        ]
     )
 
 
@@ -93,7 +100,7 @@ async def test_test_generator_node_zero_provided_examples(monkeypatch):
     )
     state = _base_state(examples=[], solution=solution)
 
-    update = await test_generator_node(state)
+    update = await test_generator_node_module.test_generator_node(state)
 
     result_tests = update["solution"].tests
     assert len(result_tests) == 10
@@ -112,7 +119,7 @@ async def test_test_generator_node_preserves_provided_examples(monkeypatch):
     )
     state = _base_state(examples=provided_examples, solution=solution)
 
-    update = await test_generator_node(state)
+    update = await test_generator_node_module.test_generator_node(state)
 
     result_tests = update["solution"].tests
     assert len(result_tests) == 12
@@ -131,4 +138,4 @@ async def test_test_generator_node_raises_on_shortfall(monkeypatch):
     state = _base_state(examples=provided_examples, solution=solution)
 
     with pytest.raises(ValueError, match="below the required minimum"):
-        await test_generator_node(state)
+        await test_generator_node_module.test_generator_node(state)
