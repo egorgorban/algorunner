@@ -20,6 +20,7 @@ string failure-simulation hook is retired; real pipeline failure paths
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import interrupt
 
 from algorunner.agents.code_generator.node import code_generator_node
 from algorunner.agents.problem_analyzer.node import problem_analyzer_node
@@ -28,7 +29,7 @@ from algorunner.agents.solution_strategist.node import solution_strategist_node
 from algorunner.agents.solver.node import solver_node
 from algorunner.agents.test_generator.node import test_generator_node
 from algorunner.graph.harness import render_go_program, render_python_program
-from algorunner.graph.routing import decide_after_review
+from algorunner.graph.routing import decide_after_analysis, decide_after_review
 from algorunner.graph.state import GraphState
 from algorunner.schemas.execution import ExecutionResult
 from algorunner.tools.go_executor.subprocess_backend import SubprocessGoExecutor
@@ -74,6 +75,16 @@ async def execute_go_node(state: GraphState) -> dict:
     return {"go_execution": _require_pass_marker(result)}
 
 
+async def clarification_gate_node(state: GraphState) -> dict:
+    # Zero-logic on purpose: on resume only this trivial node re-executes,
+    # never the Analyzer's LLM call (RESEARCH Pattern 2).
+    answer = interrupt(state["analysis"].clarification_question)
+    return {
+        "clarification_answer": answer,
+        "clarification_rounds": state["clarification_rounds"] + 1,
+    }
+
+
 async def finalize_success(state: GraphState) -> dict:
     """Writes the final `result` dict for a successfully completed run.
 
@@ -103,6 +114,7 @@ async def finalize_success(state: GraphState) -> dict:
                 state["go_execution"].model_dump() if state["go_execution"] else None
             ),
             "review": state["review"].model_dump() if state["review"] else None,
+            "assumption_stated": state.get("assumption_stated"),
         }
     }
 
@@ -132,7 +144,13 @@ def build_pipeline_graph(checkpointer: object) -> CompiledStateGraph:
     builder.add_node("finalize_success", finalize_success)
     builder.add_node("finalize_failed", finalize_failed)
     builder.add_edge(START, "analyzer")
-    builder.add_edge("analyzer", "strategist")
+    builder.add_node("clarification_gate", clarification_gate_node)
+    builder.add_conditional_edges(
+        "analyzer",
+        decide_after_analysis,
+        {"clarification_gate": "clarification_gate", "strategist": "strategist"},
+    )
+    builder.add_edge("clarification_gate", "analyzer")
     builder.add_edge("strategist", "solver")
     builder.add_edge("solver", "code_generator")
     builder.add_edge("code_generator", "test_generator")

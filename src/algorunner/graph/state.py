@@ -28,6 +28,9 @@ class GraphState(TypedDict):
     examples: list[dict]
     analysis: ProblemAnalysis | None
     clarification_rounds: int
+    # Plan 02-07: the user's answer to the Analyzer's clarification question,
+    # set by `clarification_gate_node` on resume (additive field).
+    clarification_answer: str | None
     assumption_stated: str | None
     approaches: list[Approach]
     solution: Solution | None

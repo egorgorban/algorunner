@@ -20,6 +20,13 @@ _CATEGORY_TO_NODE = {
 _TARGET_PRIORITY = ["solver", "code_generator"]
 
 
+def decide_after_analysis(state: GraphState) -> str:
+    analysis = state["analysis"]
+    if analysis is not None and analysis.needs_clarification:
+        return "clarification_gate"
+    return "strategist"
+
+
 def decide_after_review(state: GraphState) -> str:
     review = state["review"]
     if review is None:

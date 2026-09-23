@@ -29,11 +29,14 @@ WORKER_STARTUP by `worker/broker.py`'s `_on_worker_startup` hook.
 import logging
 from uuid import UUID
 
+from langgraph.types import Command
+
 from algorunner.config import settings
 from algorunner.schemas.task import TaskError, TaskStatus
 from algorunner.storage.postgres import get_pool
 from algorunner.storage.tasks import (
     get_task,
+    update_task_clarification,
     update_task_completed,
     update_task_failed,
     update_task_status,
@@ -43,6 +46,26 @@ from algorunner.worker.broker import broker
 logger = logging.getLogger(__name__)
 
 _pool = get_pool()
+
+
+async def _handle_result_or_pause(task_id: str, result_state: dict) -> None:
+    """Persist the outcome of a graph invocation: a clarification pause, a
+    terminal failure, or a completed result."""
+    interrupts = result_state.get("__interrupt__")
+    if interrupts:
+        await update_task_clarification(_pool, UUID(task_id), interrupts[0].value)
+        return
+
+    error = result_state.get("error")
+    if error is not None:
+        await update_task_failed(
+            _pool,
+            UUID(task_id),
+            TaskError(code=error["code"], message=error["message"]),
+        )
+        return
+
+    await update_task_completed(_pool, UUID(task_id), result=result_state.get("result"))
 
 
 @broker.task
@@ -77,6 +100,7 @@ async def solve_problem(task_id: str) -> None:
                 "examples": [example.model_dump() for example in task.examples],
                 "analysis": None,
                 "clarification_rounds": 0,
+                "clarification_answer": None,
                 "assumption_stated": None,
                 "approaches": [],
                 "solution": None,
@@ -98,16 +122,32 @@ async def solve_problem(task_id: str) -> None:
             durability="sync",
         )
 
-        error = result_state.get("error")
-        if error is not None:
-            await update_task_failed(
-                _pool,
-                UUID(task_id),
-                TaskError(code=error["code"], message=error["message"]),
-            )
-            return
+        await _handle_result_or_pause(task_id, result_state)
+    except Exception as exc:  # CR-01
+        await update_task_failed(
+            _pool,
+            UUID(task_id),
+            TaskError(code="UNHANDLED_EXCEPTION", message=str(exc)),
+        )
+        raise
 
-        await update_task_completed(_pool, UUID(task_id), result=result_state.get("result"))
+
+@broker.task
+async def resume_task_with_clarification(task_id: str, answer: str) -> None:
+    """Resume the SAME checkpointed thread with the user's clarification
+    answer (INTAKE-05) — never restarts the pipeline."""
+    from algorunner.graph.build import build_pipeline_graph
+
+    await _pool.open()
+
+    try:
+        graph = build_pipeline_graph(broker.state.checkpointer)
+        result_state = await graph.ainvoke(
+            Command(resume=answer),
+            config={"configurable": {"thread_id": task_id}},
+            durability="sync",
+        )
+        await _handle_result_or_pause(task_id, result_state)
     except Exception as exc:  # CR-01
         await update_task_failed(
             _pool,

@@ -11,6 +11,7 @@ established in `graph/build.py`/`worker/tasks.py`.
 """
 
 from algorunner.agents.problem_analyzer.prompts import build_analysis_messages
+from algorunner.config import settings
 from algorunner.graph.state import GraphState
 from algorunner.llm import client_factory
 from algorunner.llm.retry import call_structured
@@ -27,4 +28,16 @@ async def problem_analyzer_node(state: GraphState) -> dict:
     message = completion.choices[0].message
     if message.parsed is None:
         raise ValueError(f"Analyzer refused or failed to parse: {message.refusal}")
-    return {"analysis": message.parsed}
+    analysis: ProblemAnalysis = message.parsed
+
+    rounds = state.get("clarification_rounds", 0)
+    assumption_text = state.get("assumption_stated")
+    if analysis.needs_clarification and rounds >= settings.clarification_round_cap:
+        # D-04: never pause past the round cap; proceed under a stated assumption.
+        detail = analysis.clarification_question or "no further detail was available"
+        analysis = analysis.model_copy(update={"needs_clarification": False})
+        assumption_text = (
+            f"Clarification could not be fully resolved after {rounds} round(s); "
+            f"proceeding under the Analyzer's best interpretation: {detail}"
+        )
+    return {"analysis": analysis, "assumption_stated": assumption_text}
