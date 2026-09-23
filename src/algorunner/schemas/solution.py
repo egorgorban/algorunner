@@ -182,8 +182,9 @@ class StructuredCase(BaseModel):
 class Solution(BaseModel):
     approach: Approach
     algorithm: str = Field(..., min_length=1)
+    entry_point: EntryPoint
     code_python: str = Field(..., min_length=1)
     code_go: str = Field(..., min_length=1)
-    tests: list[dict]
+    tests: list[StructuredCase]
     complexity_time: str = Field(..., min_length=1)
     complexity_space: str = Field(..., min_length=1)
