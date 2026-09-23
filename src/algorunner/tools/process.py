@@ -14,8 +14,9 @@ TRUST MODEL (read before relying on any control here)
 
 1. The security boundary is uid separation. The worker stays root (changing
    the child's uid needs root; a non-root worker would need CAP_SETUID) and
-   every child runs as uid/gid 65534 with no supplementary groups. It
-   therefore cannot open ``/proc/1/environ`` or ``/proc/<worker pid>/environ``
+   every child runs as uid/gid 65534 with no supplementary groups; the drop
+   is performed in ``preexec_fn`` (setgroups, setgid, setuid, then rlimits).
+   It therefore cannot open ``/proc/1/environ`` or ``/proc/<worker pid>/environ``
    where ``OPENAI_API_KEY``, ``DATABASE_URL`` and ``REDIS_URL`` live. This
    applies only when the worker's euid is 0; otherwise (developer hosts)
    nothing changes.
@@ -44,7 +45,6 @@ import resource
 import signal
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 _REAP_TIMEOUT_S = 5.0
 
@@ -62,25 +62,43 @@ def _euid() -> int:
     return os.geteuid()
 
 
-def spawn_identity_kwargs() -> dict[str, Any]:
-    """`create_subprocess_exec` kwargs dropping the child to uid/gid 65534.
+def make_preexec_fn(limit_fn: Callable[[], None] | None) -> Callable[[], None] | None:
+    """Build the ``preexec_fn`` for a child spawn.
 
-    Only when the worker is root. If the drop is required (image flag) but the
-    worker is not root, raise instead of degrading (D-00f).
+    The decision is made here, in the parent. As root the result drops to
+    uid/gid 65534 (setgroups, setgid, setuid) and then applies ``limit_fn``.
+    Non-root returns ``limit_fn`` unchanged. If the drop is required (image
+    flag) but the worker is not root, raise instead of degrading (D-00f).
     """
     if _euid() == 0:
-        return {
-            "user": UNPRIVILEGED_UID,
-            "group": UNPRIVILEGED_GID,
-            "extra_groups": [],
-        }
+
+        def _drop_then_limit() -> None:
+            """Runs in the forked child (uvloop and CPython both call
+            ``preexec_fn`` there): only ``os.*`` syscalls and the rlimit
+            function; no logging, no ``_euid()``/environment lookups.
+
+            Exceptions are deliberately never caught: any OSError aborts the
+            spawn (the child never execs and the parent raises
+            ``subprocess.SubprocessError``), which is the fail-closed
+            behavior. OSError carries args, so uvloop's error-pipe report
+            works. Order matters: groups and gid can only change while still
+            root, and setuid drops real/effective/saved ids irrevocably, so a
+            failure at any step can never leave a child that execs as root.
+            """
+            os.setgroups([])
+            os.setgid(UNPRIVILEGED_GID)
+            os.setuid(UNPRIVILEGED_UID)
+            if limit_fn is not None:
+                limit_fn()
+
+        return _drop_then_limit
     if os.environ.get(REQUIRE_PRIVILEGE_DROP_ENV, "").strip().lower() in {"1", "true", "yes"}:
         raise PrivilegeDropUnavailableError(
             "Privilege drop is required but the worker is not root: generated "
             "code would run under the worker's own uid and could read its "
             "/proc environ (API key, database and redis URLs)."
         )
-    return {}
+    return limit_fn
 
 
 def prepare_workdir(path: Path) -> None:
@@ -171,11 +189,16 @@ async def run_in_process_group(
     generated code has no cleanup duty and a sleep in the cancel path would
     itself be a cancellation point.
     """
-    # Ordering is load-bearing: CPython applies user/group/extra_groups
-    # (setgroups, setregid, setreuid) BEFORE calling preexec_fn, so the rlimits
-    # (including NPROC=0) are set after the uid change. Reversing that would
-    # make Linux mark PF_NPROC_EXCEEDED at setuid time and fail every execve
-    # with EAGAIN.
+    # The privilege drop is done inside preexec_fn, NOT via user/group/
+    # extra_groups spawn kwargs: the worker and API run on uvloop (taskiq's
+    # worker selects it whenever importable, uvicorn `auto` does the same) and
+    # uvloop.Loop.subprocess_exec rejects identity keywords with ValueError.
+    # Ordering inside the composed function is load-bearing: rlimits come after
+    # setuid because on Linux set_user() flags PF_NPROC_EXCEEDED if RLIMIT_NPROC
+    # is already exceeded, which makes the following execve fail with EAGAIN
+    # (so RLIMIT_NPROC=0 must follow the uid change). Do not reintroduce spawn
+    # kwargs for identity and do not move the limits before the drop.
+    preexec = make_preexec_fn(limit_fn)
     proc = await asyncio.create_subprocess_exec(
         *args,
         stdout=asyncio.subprocess.PIPE,
@@ -183,8 +206,7 @@ async def run_in_process_group(
         cwd=cwd,
         env=env,
         start_new_session=True,
-        preexec_fn=limit_fn,
-        **spawn_identity_kwargs(),
+        preexec_fn=preexec,
     )
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
