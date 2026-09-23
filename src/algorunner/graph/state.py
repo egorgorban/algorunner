@@ -31,6 +31,13 @@ class GraphState(TypedDict):
     assumption_stated: str | None
     approaches: list[Approach]
     solution: Solution | None
+    # Plan 02-03's Solver returns a partial-elaboration shape here (approach +
+    # algorithm + complexity, no code/tests yet) — Plan 02-04's Code
+    # Generator folds this into a real `Solution` once code_python/code_go/
+    # tests exist. The one additive edit to this file since Plan 02-02's
+    # "full 16-field shape, never touched again" framing — the Solver/Code
+    # Generator split was not knowable until this plan's design decision.
+    solver_output: dict | None
     python_execution: ExecutionResult | None
     go_execution: ExecutionResult | None
     review: ReviewResult | None
