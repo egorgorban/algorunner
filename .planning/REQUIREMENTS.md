@@ -22,10 +22,10 @@
 
 ### Code Generation
 
-- [ ] **CODE-01**: Code Generator produces a Python implementation for each approach
-- [ ] **CODE-02**: Code Generator produces a Go implementation for each approach
-- [ ] **CODE-03**: Test Generator produces test cases per approach, incorporating any examples/tests provided in the original problem input
-- [ ] **CODE-04**: Test Generator generates additional test cases (including edge cases) when the input doesn't provide enough
+- [x] **CODE-01**: Code Generator produces a Python implementation for each approach
+- [x] **CODE-02**: Code Generator produces a Go implementation for each approach
+- [x] **CODE-03**: Test Generator produces test cases per approach, incorporating any examples/tests provided in the original problem input
+- [x] **CODE-04**: Test Generator generates additional test cases (including edge cases) when the input doesn't provide enough
 
 ### Execution
 
@@ -146,10 +146,10 @@ Explicitly excluded. Documented to prevent scope creep.
 | STRAT-01 | Phase 2 | Complete |
 | STRAT-03 | Phase 2 | Complete |
 | STRAT-04 | Phase 2 | Complete |
-| CODE-01 | Phase 2 | Pending |
-| CODE-02 | Phase 2 | Pending |
-| CODE-03 | Phase 2 | Pending |
-| CODE-04 | Phase 2 | Pending |
+| CODE-01 | Phase 2 | Complete |
+| CODE-02 | Phase 2 | Complete |
+| CODE-03 | Phase 2 | Complete |
+| CODE-04 | Phase 2 | Complete |
 | EXEC-01 | Phase 2 | Pending |
 | EXEC-02 | Phase 2 | Pending |
 | EXEC-03 | Phase 2 | Pending |
