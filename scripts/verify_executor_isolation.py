@@ -9,6 +9,12 @@ Run inside the worker image, piped into the same interpreter the worker uses:
 Prints one `PASS name` / `FAIL name: reason` line per check and never prints
 environment content or secrets (booleans and uid/limit numbers only). Exits 2
 if not root (inert on developer hosts), 1 on any failure, 0 on success.
+
+The probe deliberately runs on uvloop because the taskiq worker and uvicorn
+do. A stdlib-loop probe let the "unexpected kwargs: user, group, extra_groups"
+regression through (uvloop rejects identity spawn kwargs). euid 0 plus uvloop
+are only ever exercised together here; the host pytest suite is non-root and
+covers uvloop with mocked syscalls.
 """
 
 import asyncio
@@ -19,6 +25,8 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+import uvloop
 
 from algorunner.tools.go_executor.subprocess_backend import SubprocessGoExecutor
 from algorunner.tools.python_executor.subprocess_backend import SubprocessPythonExecutor
@@ -134,6 +142,13 @@ async def main() -> int:
     if os.geteuid() != 0:
         print("verify_executor_isolation must run as root inside the worker image")
         return 2
+
+    loop = asyncio.get_running_loop()
+    check(
+        "probe-runs-under-uvloop",
+        isinstance(loop, uvloop.Loop),
+        f"running on {type(loop).__module__}.{type(loop).__name__}",
+    )
 
     # 1. Guard env flag.
     check(
@@ -259,4 +274,4 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    sys.exit(asyncio.run(main(), loop_factory=uvloop.new_event_loop))
