@@ -634,17 +634,19 @@ class GraphState(TypedDict):
 | A3 | Default `max_iterations = 5` (upper bound of the user-specified "3-5" range) | Standard Stack / Pattern 4 | Low risk — user explicitly delegated the exact number within the stated range; configurable via settings either way |
 | A4 | Go `1.27-bookworm` is a valid/available Docker Hub tag for the `golang` image at the pinned Go version | Pitfall 11 | If the exact tag doesn't exist, `docker compose build` fails fast and loudly at build time (not a silent runtime failure) — low risk, easy to fix by checking `hub.docker.com/_/golang/tags` at implementation time |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Exact issue-category → node routing table completeness (D-05)**
    - What we know: two examples are given (algorithm-soundness→Solver, code-quality-only→CodeGenerator).
    - What's unclear: whether "correctness" bugs (code produces wrong output despite a sound algorithm) should route to Solver (regenerate algorithm+code) or Code Generator only (algorithm is fine, just an implementation bug).
    - Recommendation: default to Solver for `correctness`/`edge_case`/`complexity` categories (safer — Solver's output flows into Code Generator anyway) as shown in Pattern 4's table; revisit once a few real correction cycles are observed in practice.
+   - RESOLVED: implemented exactly as recommended — Plan 02-06 (Reviewer + correction loop) builds `_CATEGORY_TO_NODE` in `graph/routing.py` mapping `algorithm_soundness`/`correctness`/`edge_case`/`complexity` → `solver` and `code_quality` → `code_generator`, read by `decide_after_review`'s conditional-edge function exactly per Pattern 4's table.
 
 2. **Does the Reviewer's `complexity` category ever independently trigger `passed=false`, or is it always paired with another critical issue?**
    - What we know: D-07 says only correctness/algorithm-soundness/edge-case-failures are explicitly named as critical; complexity/code-quality are the two categories D-07 doesn't explicitly classify.
    - What's unclear: whether a *wrong* complexity claim alone (code is correct, but the stated Big-O doesn't match the actual code structure) should be `critical` or `minor`.
    - Recommendation: treat as `critical` by default (core value = correctness including complexity honesty, per PROJECT.md's stated priority and PITFALLS.md Pitfall 5's explicit warning about shipping wrong complexity claims) — but flag this for product-owner confirmation if it comes up during `/gsd-discuss-phase` follow-up.
+   - RESOLVED: implemented exactly as recommended — Plan 02-06 includes `complexity` among the categories that can independently trigger `passed=false` (a Reviewer-flagged `complexity` issue with `severity="critical"` routes to correction the same as any other critical category), consistent with the project's correctness-including-complexity-honesty priority.
 
 ## Environment Availability
 

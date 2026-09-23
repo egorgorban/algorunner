@@ -57,36 +57,40 @@ Plans:
   4. The generated Python and Go code are actually executed via swappable executor tools (subprocess/compile+run) against the tests, producing a structured pass/fail result, and a Reviewer evaluates correctness, edge cases, and a justified complexity claim into a structured ReviewResult
   5. A failing review automatically routes back into a bounded correction loop (carrying prior attempt context) that ends in either a passing solution or a clean terminal FAILED result within `max_iterations` — never an unbounded loop — while OpenAI timeouts/rate-limits retry with backoff and total solve time is capped by a global timeout
 
-**Plans**: 7 plans
+**Plans**: 8 plans
 
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Foundation: all Phase 2 Pydantic contracts, Analyzer tracer (real OpenAI call + real graph + real Postgres checkpoint), retry wrapper, Phase-1 hardening (CR-01..CR-04, WR-01)
+- [ ] 02-01-PLAN.md — Phase 2 Pydantic contracts, Settings extension, LLM client factory + retry wrapper
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 02-02-PLAN.md — Solution Strategist + Solver nodes, wired into the pipeline graph
+- [ ] 02-02-PLAN.md — Analyzer tracer (real OpenAI call + real graph + real Postgres checkpoint), Phase-1 hardening (CR-01..CR-04, WR-01)
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 02-03-PLAN.md — Code Generator + Test Generator nodes (D-10/D-11 example-preservation and 10-test minimum)
+- [ ] 02-03-PLAN.md — Solution Strategist + Solver nodes, wired into the pipeline graph
 
 **Wave 4** *(blocked on Wave 3)*
 
-- [ ] 02-04-PLAN.md — Python + Go executor tools (subprocess/compile+run, resource limits, import denylist, Docker Go toolchain)
+- [ ] 02-04-PLAN.md — Code Generator + Test Generator nodes (D-10/D-11 example-preservation and 10-test minimum)
 
 **Wave 5** *(blocked on Wave 4)*
 
-- [ ] 02-05-PLAN.md — Reviewer node + bounded, issue-routed correction loop
+- [ ] 02-05-PLAN.md — Python + Go executor tools (subprocess/compile+run, resource limits, import denylist, Docker Go toolchain)
 
 **Wave 6** *(blocked on Wave 5)*
 
-- [ ] 02-06-PLAN.md — Clarification pause/resume (interrupt()/Command) + clarification API endpoints
+- [ ] 02-06-PLAN.md — Reviewer node + bounded, issue-routed correction loop
 
 **Wave 7** *(blocked on Wave 6)*
 
-- [ ] 02-07-PLAN.md — Global solve-time timeout + final live full-stack verification
+- [ ] 02-07-PLAN.md — Clarification pause/resume (interrupt()/Command) + clarification API endpoints
+
+**Wave 8** *(blocked on Wave 7)*
+
+- [ ] 02-08-PLAN.md — Global solve-time timeout + final live full-stack verification
 
 ### Phase 3: Multi-Approach Editorial & Persistence
 
