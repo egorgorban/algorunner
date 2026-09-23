@@ -6,8 +6,16 @@ the taskiq-redis default is None, meaning a crashed worker's claimed-but-
 unprocessed message never gets reclaimed via XAUTOCLAIM, and Postgres status
 would silently never advance past analyzing_problem. 30_000ms is several
 multiples of D-06's 2-5s simulated sleep.
+
+CR-03 (01-REVIEW.md): `AsyncPostgresSaver.setup()` used to be called
+unprotected on every `solve_problem` invocation, racing under concurrent
+first-time calls (`UniqueViolation` on `checkpoint_migrations`). It is now
+constructed and `.setup()`-called exactly once here, at WORKER_STARTUP,
+under the same advisory-lock-protected sequence as the schema migrations,
+and reused for the process lifetime via `state.checkpointer`.
 """
 
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from taskiq import TaskiqEvents, TaskiqState
 from taskiq_redis import RedisAsyncResultBackend, RedisStreamBroker
 
@@ -33,3 +41,8 @@ async def _on_worker_startup(state: TaskiqState) -> None:
     await pool.open()
     state.pg_pool = pool
     await run_migrations_with_lock(pool)
+
+    # CR-03: setup() exactly once per process, not per task invocation.
+    checkpointer = AsyncPostgresSaver(pool)
+    await checkpointer.setup()
+    state.checkpointer = checkpointer

@@ -19,12 +19,15 @@ CLAUDE.md "What NOT to Use", carried forward from Phase 1's docstring. The
 Phase 1 stub's `asyncio.sleep`-based D-06 simulated delay is gone along with
 the stub node itself — the real Analyzer's OpenAI call is the actual latency
 now.
+
+CR-03 (01-REVIEW.md): the checkpointer is no longer constructed/`.setup()`-
+called here per invocation (that raced under concurrent first-time calls).
+It is reused from `broker.state.checkpointer`, set exactly once at
+WORKER_STARTUP by `worker/broker.py`'s `_on_worker_startup` hook.
 """
 
 import logging
 from uuid import UUID
-
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from algorunner.config import settings
 from algorunner.schemas.task import TaskError, TaskStatus
@@ -61,9 +64,10 @@ async def solve_problem(task_id: str) -> None:
             logger.error("solve_problem: task %s not found, aborting", task_id)
             return
 
-        checkpointer = AsyncPostgresSaver(_pool)
-        await checkpointer.setup()  # idempotent — safe every invocation
-        graph = build_pipeline_graph(checkpointer)
+        # CR-03: reuse the process-wide checkpointer constructed once at
+        # WORKER_STARTUP (worker/broker.py's _on_worker_startup) instead of
+        # constructing a fresh one and calling .setup() per invocation.
+        graph = build_pipeline_graph(broker.state.checkpointer)
 
         result_state = await graph.ainvoke(
             {

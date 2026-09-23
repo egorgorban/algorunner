@@ -2,9 +2,27 @@ import logging
 from uuid import uuid4
 
 import pytest
+import pytest_asyncio
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from algorunner.schemas.task import Language, TaskSubmission
 from algorunner.storage.tasks import get_task, insert_task
+from algorunner.worker.broker import broker
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _worker_state_checkpointer(pg_pool):
+    """CR-03: solve_problem() now reads `broker.state.checkpointer` instead
+    of constructing/`.setup()`-ing its own per invocation. In production
+    that attribute is set once by worker/broker.py's WORKER_STARTUP hook
+    (`_on_worker_startup`); these tests call `solve_problem` directly
+    without going through taskiq's worker lifecycle, so this fixture
+    mimics that same one-time setup for the test process."""
+    if not hasattr(broker.state, "checkpointer"):
+        checkpointer = AsyncPostgresSaver(pg_pool)
+        await checkpointer.setup()
+        broker.state.checkpointer = checkpointer
+    yield
 
 
 async def test_solve_problem_happy_path_completes(pg_pool, mock_openai_parse):

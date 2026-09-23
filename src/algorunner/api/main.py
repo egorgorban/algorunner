@@ -46,13 +46,26 @@ app.include_router(tasks_router)
 async def limit_body_size(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
-    content_length = request.headers.get("content-length")
-    if content_length is not None:
-        try:
-            if int(content_length) > MAX_BODY_BYTES:
-                return JSONResponse(
-                    status_code=413, content={"detail": "Request body too large"}
-                )
-        except ValueError:
-            pass
+    # CR-04: count actual streamed bytes rather than trusting Content-Length
+    # (absent/malformed on a chunked or deliberately-mislabeled request would
+    # otherwise bypass this check entirely). Aborts the read loop the moment
+    # the running total exceeds MAX_BODY_BYTES — never buffers a full
+    # oversized body in memory.
+    body_chunks: list[bytes] = []
+    total_bytes = 0
+    async for chunk in request.stream():
+        total_bytes += len(chunk)
+        if total_bytes > MAX_BODY_BYTES:
+            return JSONResponse(status_code=413, content={"detail": "Request body too large"})
+        body_chunks.append(chunk)
+
+    # Re-inject the already-consumed body for downstream Pydantic parsing.
+    # Starlette's BaseHTTPMiddleware wraps `request` in a `_CachedRequest`
+    # whose `wrapped_receive()` replays `request._body` to the rest of the
+    # ASGI chain when set — the same mechanism `Request.body()` uses
+    # internally. Setting it here (instead of calling `.body()`, which would
+    # re-consume `.stream()` a second time) makes the already-read chunks
+    # visible to FastAPI's route handler without buffering twice.
+    request._body = b"".join(body_chunks)
+
     return await call_next(request)
