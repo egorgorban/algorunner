@@ -64,6 +64,58 @@ async def update_task_completed(
         )
 
 
+async def update_task_clarification(
+    pool: AsyncConnectionPool, task_id: UUID, question: str
+) -> None:
+    async with pool.connection() as conn:
+        await conn.execute(
+            """
+            UPDATE tasks
+            SET status = %s, clarification_question = %s, updated_at = now()
+            WHERE id = %s
+            """,
+            (TaskStatus.AWAITING_CLARIFICATION.value, question, task_id),
+        )
+
+
+async def attempt_consume_clarification(pool: AsyncConnectionPool, task_id: UUID) -> bool:
+    """Atomically transition awaiting_clarification -> analyzing_problem.
+
+    Returns True iff this call performed the transition. A missing task, an
+    already-resumed task, or a lost race all return False, so exactly one of
+    any number of concurrent callers can enqueue the resume.
+    """
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            """
+            UPDATE tasks
+            SET status = %s, updated_at = now()
+            WHERE id = %s AND status = %s
+            RETURNING id
+            """,
+            (
+                TaskStatus.ANALYZING_PROBLEM.value,
+                task_id,
+                TaskStatus.AWAITING_CLARIFICATION.value,
+            ),
+        )
+        return await cur.fetchone() is not None
+
+
+async def add_active_execution_seconds(
+    pool: AsyncConnectionPool, task_id: UUID, delta: float
+) -> None:
+    async with pool.connection() as conn:
+        await conn.execute(
+            """
+            UPDATE tasks
+            SET active_execution_seconds = active_execution_seconds + %s, updated_at = now()
+            WHERE id = %s
+            """,
+            (delta, task_id),
+        )
+
+
 async def update_task_failed(
     pool: AsyncConnectionPool, task_id: UUID, error: TaskError
 ) -> None:

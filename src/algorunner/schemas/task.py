@@ -64,6 +64,8 @@ class TaskRecord(BaseModel):
     examples: list[Example]
     result: dict | None = None
     error: TaskError | None = None
+    clarification_question: str | None = None
+    active_execution_seconds: float = 0.0
     created_at: datetime
     updated_at: datetime
 
