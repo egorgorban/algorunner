@@ -25,7 +25,7 @@ async def _worker_state_checkpointer(pg_pool):
     yield
 
 
-async def test_solve_problem_happy_path_completes(pg_pool, mock_openai_parse):
+async def test_solve_problem_happy_path_completes(pg_pool, mock_pipeline_openai):
     import algorunner.worker.tasks as worker_tasks
 
     task_id = uuid4()

@@ -22,6 +22,7 @@ def _initial_state(thread_id: str, problem_text: str) -> dict:
         "assumption_stated": None,
         "approaches": [],
         "solution": None,
+        "solver_output": None,
         "python_execution": None,
         "go_execution": None,
         "review": None,
@@ -33,7 +34,9 @@ def _initial_state(thread_id: str, problem_text: str) -> dict:
     }
 
 
-async def test_build_pipeline_graph_happy_path_sets_analysis_result(pg_pool, mock_openai_parse):
+async def test_build_pipeline_graph_happy_path_sets_analysis_result(
+    pg_pool, mock_pipeline_openai
+):
     checkpointer = await _checkpointer_for(pg_pool)
     graph = build_pipeline_graph(checkpointer)
 
@@ -50,7 +53,7 @@ async def test_build_pipeline_graph_happy_path_sets_analysis_result(pg_pool, moc
 
 
 async def test_build_pipeline_graph_persists_checkpoint_row_to_real_postgres(
-    pg_pool, mock_openai_parse
+    pg_pool, mock_pipeline_openai
 ):
     checkpointer = await _checkpointer_for(pg_pool)
     graph = build_pipeline_graph(checkpointer)
@@ -61,6 +64,34 @@ async def test_build_pipeline_graph_persists_checkpoint_row_to_real_postgres(
         config={"configurable": {"thread_id": thread_id}},
         durability="sync",
     )
+
+    async with pg_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT count(*) FROM checkpoints WHERE thread_id = %s", (thread_id,)
+            )
+            row = await cur.fetchone()
+            count = row["count"] if isinstance(row, dict) else row[0]
+
+    assert count >= 1
+
+
+async def test_build_pipeline_graph_runs_analyzer_strategist_solver_end_to_end(
+    pg_pool, mock_pipeline_openai
+):
+    checkpointer = await _checkpointer_for(pg_pool)
+    graph = build_pipeline_graph(checkpointer)
+
+    thread_id = str(uuid4())
+    result_state = await graph.ainvoke(
+        _initial_state(thread_id, "two sum"),
+        config={"configurable": {"thread_id": thread_id}},
+        durability="sync",
+    )
+
+    assert result_state["error"] is None
+    assert result_state["approaches"][0].technique == "hash map"
+    assert result_state["result"]["solver_output"]["algorithm"]
 
     async with pg_pool.connection() as conn:
         async with conn.cursor() as cur:

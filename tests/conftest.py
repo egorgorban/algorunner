@@ -7,8 +7,10 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 import algorunner.llm.client_factory as client_factory_module
+from algorunner.agents.solver.node import SolverOutput
 from algorunner.api.main import app
 from algorunner.schemas.problem import ProblemAnalysis
+from algorunner.schemas.solution import Approach, ApproachList
 from algorunner.storage.migrate import apply_pending_migrations
 from algorunner.storage.postgres import get_pool
 
@@ -67,5 +69,62 @@ def mock_openai_parse(monkeypatch):
         )
     )
 
+    monkeypatch.setattr(client_factory_module, "get_client", lambda: fake_client)
+    return fake_client
+
+
+@pytest.fixture
+def mock_pipeline_openai(monkeypatch):
+    """Monkeypatches `client_factory.get_client()` for a full
+    analyzer -> strategist -> solver graph run (Plan 02-03). All three nodes
+    call the same `client_factory.get_client()`, so this fixture drives a
+    single fake client's `parse` mock with `side_effect` — one canned
+    response per node, in the order the graph actually calls them. Unlike
+    `mock_openai_parse` above (analyzer-only, one canned response reused for
+    every call — correct for single-node unit tests), a full pipeline
+    invocation needs a distinct response per node or the second/third call
+    receives the wrong Pydantic type and blows up with an AttributeError."""
+    analysis = ProblemAnalysis(
+        constraints=["1 <= n <= 10^4"],
+        input_shape="list[int], int target",
+        output_shape="list[int] of two indices",
+        intent="Find the indices of two numbers that add up to the target",
+        difficulty="easy",
+        needs_clarification=False,
+        clarification_question=None,
+    )
+    approaches = ApproachList(
+        approaches=[
+            Approach(
+                name="Hash map lookup",
+                technique="hash map",
+                summary="Track complements in a hash map for one pass.",
+            )
+        ]
+    )
+    solver_output = SolverOutput(
+        algorithm="Iterate once, tracking complements of each value in a hash map.",
+        complexity_time="O(n), one pass with O(1) average hash map lookups.",
+        complexity_space="O(n), the hash map holds up to n entries.",
+    )
+
+    def _completion(parsed):
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(parsed=parsed, refusal=None))]
+        )
+
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                parse=AsyncMock(
+                    side_effect=[
+                        _completion(analysis),
+                        _completion(approaches),
+                        _completion(solver_output),
+                    ]
+                )
+            )
+        )
+    )
     monkeypatch.setattr(client_factory_module, "get_client", lambda: fake_client)
     return fake_client
