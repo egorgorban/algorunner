@@ -16,6 +16,7 @@ in `graph/build.py` (Task 3) is responsible for producing this shape from
 import asyncio
 import time
 
+from algorunner.tools.go_executor.subprocess_backend import SubprocessGoExecutor
 from algorunner.tools.python_executor.subprocess_backend import SubprocessPythonExecutor
 
 
@@ -82,3 +83,78 @@ async def test_python_executor_rejects_denylisted_import_without_spawning_subpro
     assert "Disallowed import: os" in result.stderr
     assert result.exit_code == -1
     assert spawned is False
+
+
+# --- Go executor tests (Task 2) ---
+#
+# `code` is a complete Go file body (`package main` + imports + solution
+# func(s), no `func main`); `tests` is Go source executed inside a
+# generated `func main() { ... }` — the same code+tests convention as the
+# Python executor above, translated to Go's compile+run model. A caller
+# that wants `os.Exit(1)` available inside `tests` must import "os" in
+# `code` itself (the executor does not inject extra imports beyond what
+# `code` declares — see subprocess_backend.py module docstring).
+
+_GO_DOUBLE_CODE = 'package main\n\nimport "os"\n\nfunc double(x int) int {\n\treturn x * 2\n}\n'
+
+
+async def test_go_executor_runs_correct_solution():
+    tests = (
+        "if double(2) != 4 {\n\tos.Exit(1)\n}\n"
+        "if double(3) != 6 {\n\tos.Exit(1)\n}\n"
+    )
+
+    result = await SubprocessGoExecutor().run(_GO_DOUBLE_CODE, tests, timeout_s=30.0)
+
+    assert result.passed is True
+    assert result.exit_code == 0
+
+
+async def test_go_executor_reports_failure_on_mismatch():
+    tests = "if double(2) != 5 {\n\tos.Exit(1)\n}\n"
+
+    result = await SubprocessGoExecutor().run(_GO_DOUBLE_CODE, tests, timeout_s=30.0)
+
+    assert result.passed is False
+    assert result.exit_code == 1
+
+
+async def test_go_executor_rejects_disallowed_import_without_spawning_subprocess(
+    monkeypatch,
+):
+    code = (
+        'package main\n\nimport "os/exec"\n\n'
+        'func bad() error {\n\treturn exec.Command("ls").Run()\n}\n'
+    )
+    tests = ""
+
+    spawned = False
+    original_create_subprocess_exec = asyncio.create_subprocess_exec
+
+    async def _spy_create_subprocess_exec(*args, **kwargs):
+        nonlocal spawned
+        spawned = True
+        return await original_create_subprocess_exec(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _spy_create_subprocess_exec)
+
+    result = await SubprocessGoExecutor().run(code, tests, timeout_s=30.0)
+
+    assert result.passed is False
+    assert "Disallowed import: os/exec" in result.stderr
+    assert spawned is False
+
+
+async def test_go_executor_kills_infinite_loop_via_process_group():
+    code = 'package main\n\nfunc loop() {\n\tfor {\n\t}\n}\n'
+    tests = "loop()\n"
+
+    start = time.monotonic()
+    result = await SubprocessGoExecutor().run(code, tests, timeout_s=3.0)
+    elapsed = time.monotonic() - start
+
+    # Total budget covers both the (normally fast) build step and the
+    # timed-out run step without hanging the test suite.
+    assert elapsed < 30.0
+    assert result.passed is False
+    assert result.exit_code == -1
