@@ -72,3 +72,22 @@ async def test_create_task_rejects_oversized_body_with_413(app_client):
         json={"problem_text": "x" * 150_000, "language": "en", "examples": []},
     )
     assert response.status_code == 413
+
+
+async def test_create_task_accepts_example_with_explanation(app_client):
+    response = await app_client.post(
+        "/api/v1/tasks",
+        json={
+            "problem_text": "two sum",
+            "language": "en",
+            "examples": [
+                {
+                    "input": "[2,7,11,15], target=9",
+                    "output": "[0,1]",
+                    "explanation": "nums[0] + nums[1] == 9, so we return [0, 1].",
+                },
+                {"input": "[1,2]", "output": "[0,1]"},
+            ],
+        },
+    )
+    assert response.status_code == 202
