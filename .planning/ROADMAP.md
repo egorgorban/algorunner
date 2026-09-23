@@ -57,7 +57,7 @@ Plans:
   4. The generated Python and Go code are actually executed via swappable executor tools (subprocess/compile+run) against the tests, producing a structured pass/fail result, and a Reviewer evaluates correctness, edge cases, and a justified complexity claim into a structured ReviewResult
   5. A failing review automatically routes back into a bounded correction loop (carrying prior attempt context) that ends in either a passing solution or a clean terminal FAILED result within `max_iterations` — never an unbounded loop — while OpenAI timeouts/rate-limits retry with backoff and total solve time is capped by a global timeout
 
-**Plans**: 9/9 plans executed
+**Plans**: 9/10 plans executed
 
 Plans:
 **Wave 1**
@@ -95,6 +95,10 @@ Plans:
 **Wave 9** *(blocked on Wave 8)*
 
 - [x] 02-08-PLAN.md — Global solve-time timeout + final live full-stack verification
+
+**Wave 10** *(blocked on Wave 9)*
+
+- [ ] 02-10-PLAN.md — Gap closure from 02-REVIEW (CR-01, CR-02): executor children run as unprivileged uid 65534 (worker API key unreadable), whole-process-group kill on cancel/timeout, Go rlimits, worker image guard + container acceptance probe
 
 ### Phase 3: Multi-Approach Editorial & Persistence
 
@@ -134,6 +138,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & Task Lifecycle Skeleton | 2/2 | Complete    | 2026-09-22 |
-| 2. Verified Single-Solution Core Pipeline | 9/9 | In Progress|  |
+| 2. Verified Single-Solution Core Pipeline | 9/10 | In Progress|  |
 | 3. Multi-Approach Editorial & Persistence | 0/TBD | Not started | - |
 | 4. Realtime Streaming, Frontend & Documentation | 0/TBD | Not started | - |
