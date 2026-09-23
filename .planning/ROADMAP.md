@@ -57,12 +57,12 @@ Plans:
   4. The generated Python and Go code are actually executed via swappable executor tools (subprocess/compile+run) against the tests, producing a structured pass/fail result, and a Reviewer evaluates correctness, edge cases, and a justified complexity claim into a structured ReviewResult
   5. A failing review automatically routes back into a bounded correction loop (carrying prior attempt context) that ends in either a passing solution or a clean terminal FAILED result within `max_iterations` — never an unbounded loop — while OpenAI timeouts/rate-limits retry with backoff and total solve time is capped by a global timeout
 
-**Plans**: 8 plans
+**Plans**: 1/8 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Phase 2 Pydantic contracts, Settings extension, LLM client factory + retry wrapper
+- [x] 02-01-PLAN.md — Phase 2 Pydantic contracts, Settings extension, LLM client factory + retry wrapper
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -130,6 +130,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & Task Lifecycle Skeleton | 2/2 | Complete    | 2026-09-22 |
-| 2. Verified Single-Solution Core Pipeline | 0/7 | Not started | - |
+| 2. Verified Single-Solution Core Pipeline | 1/8 | In Progress|  |
 | 3. Multi-Approach Editorial & Persistence | 0/TBD | Not started | - |
 | 4. Realtime Streaming, Frontend & Documentation | 0/TBD | Not started | - |
