@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -12,7 +13,7 @@ from algorunner.agents.solver.node import SolverOutput
 from algorunner.agents.test_generator.node import GeneratedTests, TestCase
 from algorunner.api.main import app
 from algorunner.schemas.problem import ProblemAnalysis
-from algorunner.schemas.solution import Approach, ApproachList
+from algorunner.schemas.solution import Approach, ApproachList, EntryParam, EntryPoint
 from algorunner.storage.migrate import apply_pending_migrations
 from algorunner.storage.postgres import get_pool
 
@@ -111,6 +112,16 @@ def mock_pipeline_openai(monkeypatch):
         complexity_space="O(n), the hash map holds up to n entries.",
     )
     code_gen_output = CodeGenOutput(
+        entry_point=EntryPoint(
+            python_name="two_sum",
+            go_name="twoSum",
+            params=[
+                EntryParam(name="nums", type="list[int]"),
+                EntryParam(name="target", type="int"),
+            ],
+            return_type="list[int]",
+            unordered_result=True,
+        ),
         code_python=(
             "def two_sum(nums, target):\n"
             "    seen = {}\n"
@@ -134,8 +145,25 @@ def mock_pipeline_openai(monkeypatch):
             "}\n"
         ),
     )
+    # Ten labelled cases, each with exactly one solution.
+    two_sum_cases = [
+        ("classic example", [[2, 7, 11, 15], 9], [0, 1]),
+        ("pair in the middle", [[3, 2, 4], 6], [1, 2]),
+        ("duplicate values", [[3, 3], 6], [0, 1]),
+        ("all negatives", [[-1, -2, -3, -4, -5], -8], [2, 4]),
+        ("zeros summing to zero", [[0, 4, 3, 0], 0], [0, 3]),
+        ("minimal length", [[1, 5], 6], [0, 1]),
+        ("pair at the end", [[5, 75, 25], 100], [1, 2]),
+        ("mixed signs", [[-3, 4, 3, 90], 0], [0, 2]),
+        ("last two elements", [[1, 2, 3, 4], 7], [2, 3]),
+        ("negative element in pair", [[10, -2, 8], 6], [1, 2]),
+    ]
     generated_tests = GeneratedTests(
-        tests=[TestCase(input=f"in-{i}", output=f"out-{i}") for i in range(10)]
+        tests=[
+            TestCase(label=label, args_json=json.dumps(args), expected_json=json.dumps(want))
+            for label, args, want in two_sum_cases
+        ],
+        normalized_examples=[],
     )
 
     def _completion(parsed):
