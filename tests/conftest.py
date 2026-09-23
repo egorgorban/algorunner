@@ -7,7 +7,9 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 import algorunner.llm.client_factory as client_factory_module
+from algorunner.agents.code_generator.node import CodeGenOutput
 from algorunner.agents.solver.node import SolverOutput
+from algorunner.agents.test_generator.node import GeneratedTests, TestCase
 from algorunner.api.main import app
 from algorunner.schemas.problem import ProblemAnalysis
 from algorunner.schemas.solution import Approach, ApproachList
@@ -76,14 +78,15 @@ def mock_openai_parse(monkeypatch):
 @pytest.fixture
 def mock_pipeline_openai(monkeypatch):
     """Monkeypatches `client_factory.get_client()` for a full
-    analyzer -> strategist -> solver graph run (Plan 02-03). All three nodes
-    call the same `client_factory.get_client()`, so this fixture drives a
-    single fake client's `parse` mock with `side_effect` — one canned
-    response per node, in the order the graph actually calls them. Unlike
-    `mock_openai_parse` above (analyzer-only, one canned response reused for
-    every call — correct for single-node unit tests), a full pipeline
-    invocation needs a distinct response per node or the second/third call
-    receives the wrong Pydantic type and blows up with an AttributeError."""
+    analyzer -> strategist -> solver -> code_generator -> test_generator
+    graph run (Plan 02-03, extended Plan 02-04). All five nodes call the
+    same `client_factory.get_client()`, so this fixture drives a single fake
+    client's `parse` mock with `side_effect` — one canned response per node,
+    in the order the graph actually calls them. Unlike `mock_openai_parse`
+    above (analyzer-only, one canned response reused for every call —
+    correct for single-node unit tests), a full pipeline invocation needs a
+    distinct response per node or a later call receives the wrong Pydantic
+    type and blows up with an AttributeError."""
     analysis = ProblemAnalysis(
         constraints=["1 <= n <= 10^4"],
         input_shape="list[int], int target",
@@ -107,6 +110,33 @@ def mock_pipeline_openai(monkeypatch):
         complexity_time="O(n), one pass with O(1) average hash map lookups.",
         complexity_space="O(n), the hash map holds up to n entries.",
     )
+    code_gen_output = CodeGenOutput(
+        code_python=(
+            "def two_sum(nums, target):\n"
+            "    seen = {}\n"
+            "    for i, n in enumerate(nums):\n"
+            "        if target - n in seen:\n"
+            "            return [seen[target - n], i]\n"
+            "        seen[n] = i\n"
+            "    return []\n"
+        ),
+        code_go=(
+            "package main\n\n"
+            "func twoSum(nums []int, target int) []int {\n"
+            "\tseen := map[int]int{}\n"
+            "\tfor i, n := range nums {\n"
+            "\t\tif j, ok := seen[target-n]; ok {\n"
+            "\t\t\treturn []int{j, i}\n"
+            "\t\t}\n"
+            "\t\tseen[n] = i\n"
+            "\t}\n"
+            "\treturn nil\n"
+            "}\n"
+        ),
+    )
+    generated_tests = GeneratedTests(
+        tests=[TestCase(input=f"in-{i}", output=f"out-{i}") for i in range(10)]
+    )
 
     def _completion(parsed):
         return SimpleNamespace(
@@ -121,6 +151,8 @@ def mock_pipeline_openai(monkeypatch):
                         _completion(analysis),
                         _completion(approaches),
                         _completion(solver_output),
+                        _completion(code_gen_output),
+                        _completion(generated_tests),
                     ]
                 )
             )

@@ -91,7 +91,43 @@ async def test_build_pipeline_graph_runs_analyzer_strategist_solver_end_to_end(
 
     assert result_state["error"] is None
     assert result_state["approaches"][0].technique == "hash map"
-    assert result_state["result"]["solver_output"]["algorithm"]
+    assert result_state["result"]["solution"]["algorithm"]
+
+    async with pg_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT count(*) FROM checkpoints WHERE thread_id = %s", (thread_id,)
+            )
+            row = await cur.fetchone()
+            count = row["count"] if isinstance(row, dict) else row[0]
+
+    assert count >= 1
+
+
+async def test_build_pipeline_graph_runs_full_pipeline_through_code_and_test_gen(
+    pg_pool, mock_pipeline_openai
+):
+    """Analyzer -> strategist -> solver -> code_generator -> test_generator
+    -> finalize_success end-to-end against real Postgres, with each of the
+    five LLM-backed nodes mocked at their shared `get_client` call site
+    (`mock_pipeline_openai`). Asserts the persisted `result["solution"]` has
+    non-empty dual-language code and a merged test list at least as long as
+    the mocked generated-test count (Task 2)."""
+    checkpointer = await _checkpointer_for(pg_pool)
+    graph = build_pipeline_graph(checkpointer)
+
+    thread_id = str(uuid4())
+    result_state = await graph.ainvoke(
+        _initial_state(thread_id, "two sum"),
+        config={"configurable": {"thread_id": thread_id}},
+        durability="sync",
+    )
+
+    assert result_state["error"] is None
+    solution = result_state["result"]["solution"]
+    assert solution["code_python"]
+    assert solution["code_go"]
+    assert len(solution["tests"]) >= 10
 
     async with pg_pool.connection() as conn:
         async with conn.cursor() as cur:
