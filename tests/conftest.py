@@ -195,19 +195,43 @@ def mock_pipeline_openai(monkeypatch):
             choices=[SimpleNamespace(message=SimpleNamespace(parsed=parsed, refusal=None))]
         )
 
+    # Phase 3: fan-out means solver, code_gen, test_gen, reviewer are called per-approach (x2)
+    # analyzer (1x) -> analysis
+    # strategist (1x) -> approaches
+    # solver (2x) -> solver_output
+    # code_generator (2x) -> code_gen_output
+    # test_generator (2x) -> generated_tests
+    # reviewer (2x) -> passing_review
+    # editorial_writer (1x if any verified, 0x if none) -> EditorialDraft
+
+    # Create side_effect list with editorial_draft placeholder (will be filled after editorial_draft definition)
+    side_effects = [
+        _completion(analysis),
+        _completion(approaches),
+        # Approach 0 solver
+        _completion(solver_output),
+        # Approach 1 solver
+        _completion(solver_output),
+        # Approach 0 code_gen
+        _completion(code_gen_output),
+        # Approach 1 code_gen
+        _completion(code_gen_output),
+        # Approach 0 test_gen
+        _completion(generated_tests),
+        # Approach 1 test_gen
+        _completion(generated_tests),
+        # Approach 0 reviewer
+        _completion(passing_review),
+        # Approach 1 reviewer
+        _completion(passing_review),
+        # Editorial writer placeholder (will add actual draft after editorial_draft is created)
+        "EDITORIAL_PLACEHOLDER",
+    ]
+
     fake_client = SimpleNamespace(
         chat=SimpleNamespace(
             completions=SimpleNamespace(
-                parse=AsyncMock(
-                    side_effect=[
-                        _completion(analysis),
-                        _completion(approaches),
-                        _completion(solver_output),
-                        _completion(code_gen_output),
-                        _completion(generated_tests),
-                        _completion(passing_review),
-                    ]
-                )
+                parse=AsyncMock()  # Will set side_effect after editorial_draft
             )
         )
     )
@@ -242,6 +266,18 @@ def mock_pipeline_openai(monkeypatch):
         ],
         edge_cases=["Пустой массив", "Массив длины 2"],
         unverified=[],
+    )
+
+    # Now that editorial_draft is defined, replace the placeholder in side_effects
+    side_effects[-1] = _completion(editorial_draft)
+    fake_client.chat.completions.parse.side_effect = side_effects
+
+    # Create a default EditorialDraft for the mock
+    default_editorial = EditorialDraft(
+        problem_restatement=editorial_draft.problem_restatement,
+        approaches=editorial_draft.approaches,
+        edge_cases=editorial_draft.edge_cases,
+        unverified=editorial_draft.unverified,
     )
 
     def draft_for(ids: list[int]) -> SimpleNamespace:
