@@ -5,6 +5,7 @@ ports) and inside the api/worker containers (which override these env vars
 with the postgres/redis service DNS names).
 """
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,6 +34,7 @@ class Settings(BaseSettings):
     reviewer_model: str | None = None
 
     max_iterations: int = 5
+    max_approaches: int = Field(default=3, ge=1)  # D-01: cap on curated approaches
     clarification_round_cap: int = 2
     test_generator_min_tests: int = 10
     global_timeout_s: int = 600

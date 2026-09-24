@@ -101,10 +101,19 @@ def mock_pipeline_openai(monkeypatch):
     approaches = ApproachList(
         approaches=[
             Approach(
+                name="Brute force pairs",
+                technique="brute force",
+                summary="Check every pair of indices.",
+                role="brute_force",
+                rationale="Provides an instructive baseline approach.",
+            ),
+            Approach(
                 name="Hash map lookup",
                 technique="hash map",
                 summary="Track complements in a hash map for one pass.",
-            )
+                role="optimized",
+                rationale="Achieves O(n) time with a single pass.",
+            ),
         ]
     )
     solver_output = SolverOutput(

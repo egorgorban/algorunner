@@ -47,7 +47,13 @@ def _state(problem_text, examples, analysis) -> dict:
         "approaches": [],
         "solution": None,
         "solver_output": {
-            "approach": Approach(name="Direct", technique="direct", summary="Direct solution."),
+            "approach": Approach(
+                name="Direct",
+                technique="direct",
+                summary="Direct solution.",
+                role="optimized",
+                rationale="Direct implementation.",
+            ),
             "algorithm": "Implement the function directly.",
             "complexity_time": "O(n)",
             "complexity_space": "O(n)",

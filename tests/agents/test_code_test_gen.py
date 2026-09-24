@@ -85,7 +85,13 @@ def _fake_client(parsed, refusal=None):
 
 def _solver_output(**overrides) -> dict:
     fields = {
-        "approach": Approach(name="Hash map lookup", technique="hash map", summary="One pass."),
+        "approach": Approach(
+            name="Hash map lookup",
+            technique="hash map",
+            summary="One pass.",
+            role="optimized",
+            rationale="Single pass solution.",
+        ),
         "algorithm": "Iterate once, tracking complements in a hash map.",
         "complexity_time": "O(n), one pass with O(1) hash map lookups.",
         "complexity_space": "O(n), the hash map holds up to n entries.",
@@ -96,7 +102,13 @@ def _solver_output(**overrides) -> dict:
 
 def _solution(**over) -> Solution:
     fields = dict(
-        approach=Approach(name="Hash map lookup", technique="hash map", summary="One pass."),
+        approach=Approach(
+            name="Hash map lookup",
+            technique="hash map",
+            summary="One pass.",
+            role="optimized",
+            rationale="Single pass solution.",
+        ),
         algorithm="Iterate once, tracking complements in a hash map.",
         entry_point=_entry_point(),
         code_python=PY_CODE + f"\n# {SECRET_IMPL_MARKER}\n",
