@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from algorunner.agents.test_generator.prompts import build_test_messages
 from algorunner.config import settings
-from algorunner.graph.state import GraphState
+from algorunner.graph.state import ApproachState
 from algorunner.llm import client_factory
 from algorunner.llm.retry import call_structured
 from algorunner.schemas.example_cases import build_normalized_example, parse_provided_example
@@ -44,7 +44,7 @@ class GeneratedTests(BaseModel):
     normalized_examples: list[NormalizedExample]
 
 
-async def test_generator_node(state: GraphState) -> dict:
+async def test_generator_node(state: ApproachState) -> dict:
     solution = state["solution"]
     entry_point = solution.entry_point
 

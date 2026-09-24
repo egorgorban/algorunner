@@ -9,7 +9,7 @@ data, regardless of provenance.
 
 from collections.abc import Sequence
 
-from algorunner.graph.state import GraphState
+from algorunner.graph.state import ApproachState
 from algorunner.schemas.review import ReviewResult
 
 _SYSTEM_PROMPT = """\
@@ -77,7 +77,7 @@ def format_review_history(history: Sequence[ReviewResult]) -> str:
     )
 
 
-def build_review_messages(state: GraphState) -> list[dict]:
+def build_review_messages(state: ApproachState) -> list[dict]:
     """Builds the chat-completion messages for the Reviewer's structured-
     output call. Pure function of state - no I/O, no LLM call here."""
     solution = state["solution"]

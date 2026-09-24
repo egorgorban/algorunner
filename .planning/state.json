@@ -1,0 +1,33 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": null,
+  "phases": [
+    {
+      "number": "1",
+      "name": "Foundation & Task Lifecycle Skeleton",
+      "status": "complete"
+    },
+    {
+      "number": "2",
+      "name": "Verified Single-Solution Core Pipeline",
+      "status": "complete"
+    },
+    {
+      "number": "3",
+      "name": "Multi-Approach Editorial & Persistence",
+      "status": "pending"
+    },
+    {
+      "number": "4",
+      "name": "Realtime Streaming, Frontend & Documentation",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "/gsd:progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 03 of 4 · 50% · executing"
+  },
+  "updated_at": "2026-09-24T12:55:16.596Z"
+}

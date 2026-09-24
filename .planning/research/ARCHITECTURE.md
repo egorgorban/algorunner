@@ -52,16 +52,16 @@
 
 ### Component Responsibilities
 
-| Component | Responsibility | Typical Implementation |
-|-----------|----------------|------------------------|
-| FastAPI app | HTTP/WS boundary only: validate input, enqueue task, read task row for status, stream events | Thin route handlers; no LangGraph invocation happens in the request/response cycle |
-| taskiq worker | Owns the actual LangGraph `.ainvoke()`/`.astream()` call for a task; only place LangGraph runs | One taskiq task = one LangGraph run per problem-solve request |
-| LangGraph StateGraph | Fixed pipeline: bounded LLM reasoning nodes + deterministic tool nodes + bounded correction loop | Compiled once at process startup, reused across invocations with different `thread_id`s |
-| Agent nodes (Analyzer, Strategist, Solver, Code Gen, Test Gen, Reviewer, Editorial Writer) | Each is a plain async function `(state) -> dict`, calling an LLM with `with_structured_output(PydanticModel)` | One node = one bounded LLM call; no node itself decides graph topology except via its return value/conditional edge |
-| Deterministic tools (PythonExecutorTool, GoExecutorTool) | Run/compile generated code against tests; return a structured pass/fail result; **not** LLM-backed, not agents | Plain classes/functions behind a `Protocol`, called directly from a node wrapper, not via LLM tool-calling |
-| Checkpointer (`AsyncPostgresSaver`) | Persists graph state per superstep so an interrupted run resumes at the last completed node | Configured once, passed to `builder.compile(checkpointer=...)`; `thread_id` = task_id |
-| Task table (Postgres) | Source of truth for API-visible status or terminal result — independent of LangGraph's internal checkpoint format | Simple row: id, status, timestamps, error, result_ref |
-| Garage (S3) | Large/structured intermediate artifacts (full ProblemAnalysis, all Solutions with code+tests+review history, final Editorial) — keeps Postgres rows small | Written by the Finalizer node (and optionally by earlier nodes for audit), referenced by key from the task row |
+| Component                                                                                  | Responsibility                                                                                                                                            | Typical Implementation                                                                                              |
+| ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| FastAPI app                                                                                | HTTP/WS boundary only: validate input, enqueue task, read task row for status, stream events                                                              | Thin route handlers; no LangGraph invocation happens in the request/response cycle                                  |
+| taskiq worker                                                                              | Owns the actual LangGraph `.ainvoke()`/`.astream()` call for a task; only place LangGraph runs                                                            | One taskiq task = one LangGraph run per problem-solve request                                                       |
+| LangGraph StateGraph                                                                       | Fixed pipeline: bounded LLM reasoning nodes + deterministic tool nodes + bounded correction loop                                                          | Compiled once at process startup, reused across invocations with different `thread_id`s                             |
+| Agent nodes (Analyzer, Strategist, Solver, Code Gen, Test Gen, Reviewer, Editorial Writer) | Each is a plain async function `(state) -> dict`, calling an LLM with `with_structured_output(PydanticModel)`                                             | One node = one bounded LLM call; no node itself decides graph topology except via its return value/conditional edge |
+| Deterministic tools (PythonExecutorTool, GoExecutorTool)                                   | Run/compile generated code against tests; return a structured pass/fail result; **not** LLM-backed, not agents                                            | Plain classes/functions behind a `Protocol`, called directly from a node wrapper, not via LLM tool-calling          |
+| Checkpointer (`AsyncPostgresSaver`)                                                        | Persists graph state per superstep so an interrupted run resumes at the last completed node                                                               | Configured once, passed to `builder.compile(checkpointer=...)`; `thread_id` = task_id                               |
+| Task table (Postgres)                                                                      | Source of truth for API-visible status or terminal result — independent of LangGraph's internal checkpoint format                                         | Simple row: id, status, timestamps, error, result_ref                                                               |
+| Garage (S3)                                                                                | Large/structured intermediate artifacts (full ProblemAnalysis, all Solutions with code+tests+review history, final Editorial) — keeps Postgres rows small | Written by the Finalizer node (and optionally by earlier nodes for audit), referenced by key from the task row      |
 
 ## Recommended Project Structure
 
@@ -149,13 +149,14 @@ algorunner/
 
 ### Pattern 1: Bounded correction loop via in-state counter + conditional edge
 
-**What:** A `max_iterations` cap enforced by graph *state*, not by prompt instruction. The retrying node increments a counter on every pass; the router reads both the Reviewer's `passed` flag and the counter to decide `END`/`FAILED` vs. loop back.
+**What:** A `max_iterations` cap enforced by graph _state_, not by prompt instruction. The retrying node increments a counter on every pass; the router reads both the Reviewer's `passed` flag and the counter to decide `END`/`FAILED` vs. loop back.
 
 **When to use:** Any node sequence where an LLM step can produce output that a later step judges as unacceptable, and you need a deterministic, testable stopping guarantee — this is exactly the Reviewer → Solver correction loop.
 
 **Trade-offs:** Requires the state schema to carry loop-control fields (`iterations: int`, `review_history: list[ReviewResult]`) that are otherwise pure plumbing. Upside: the stopping behavior is verifiable by unit-testing the router function directly with synthetic state, with no LLM call involved.
 
 **Example (LangGraph 1.0 API shape — verify against installed version):**
+
 ```python
 from langgraph.graph import StateGraph, START, END
 
@@ -185,6 +186,7 @@ builder.add_conditional_edges("reviewer", decide_after_review, {
     "failed": "failed",
 })
 ```
+
 This mirrors LangGraph's own reference "code assistant" example (`decide_to_finish` checking `error == "no" or iterations == max_iterations`) — the pattern is stable across LangGraph versions since it relies only on core `TypedDict` state + `add_conditional_edges`, not on newer APIs.
 
 **Note on `Command` as an alternative:** a node can also return `Command(goto="solver", update={...})` instead of relying on a separate conditional-edge function — this fuses "update state" and "route" into one return value from inside the Reviewer node itself. Either shape is valid in LangGraph 1.0; `Command` is arguably cleaner when the routing decision needs to be very close to the state update logic (e.g., the Reviewer node itself decides where to go), while `add_conditional_edges` is cleaner when the routing predicate is independent from any single node's logic. **Verify current recommended idiom against the installed LangGraph version's docs before locking this in during phase planning** — this is an area LangGraph has actively evolved (Command was introduced specifically to unify the multi-agent handoff and conditional-edge mechanisms).
@@ -198,6 +200,7 @@ This mirrors LangGraph's own reference "code assistant" example (`decide_to_fini
 **Trade-offs:** Requires picking a strong-enough model for nodes with more complex schemas (the Strategist proposing several structured `Approach` objects is a heavier structured-output task than the Reviewer's simpler `ReviewResult`) — this is exactly why per-agent model configuration (cheap vs strong) matters, not just for cost but because structured-output reliability scales with model capability.
 
 **Example:**
+
 ```python
 class ReviewResult(BaseModel):
     passed: bool
@@ -226,6 +229,7 @@ async def reviewer_node(state: GraphState) -> dict:
 **Trade-offs:** Slight indirection cost (one extra factory function to get "the configured executor"). Strong payoff: the swap from subprocess to sandbox becomes a config/DI change (`get_python_executor() -> PythonExecutorProtocol`), not a refactor touching the Code Generator, Test Generator, or Reviewer nodes.
 
 **Example:**
+
 ```python
 # tools/base.py
 from typing import Protocol
@@ -253,6 +257,7 @@ class SubprocessPythonExecutor:  # structurally satisfies CodeExecutor, no expli
 def get_python_executor() -> CodeExecutor:
     return SubprocessPythonExecutor()  # later: return SandboxedPythonExecutor()
 ```
+
 The node wrapper that calls this tool from inside the graph is a thin adapter (`async def python_executor_node(state) -> dict: result = await get_python_executor().run(...); return {"python_execution": result}`) — it is a **node in the graph but contains no LLM call**, matching the "deterministic tool, not an agent" requirement precisely.
 
 ## Data Flow
@@ -278,15 +283,15 @@ The node wrapper that calls this tool from inside the graph is a thin adapter (`
 ### Key Data Flows
 
 1. **Status propagation:** the Task row in Postgres is the single source of truth for API-visible status — it is deliberately decoupled from LangGraph's internal checkpoint state (which is an implementation detail for resumability, not a status API). Each node (or a lightweight wrapper around every node) writes a status transition after completing.
-2. **Correction loop data accumulation:** `review_history: list[ReviewResult]` (or similar) accumulates across loop iterations in graph state so the Solver, when it re-runs, receives the *specific* prior issues rather than restarting from a blank slate — this is what "not starting over" requires structurally (see Pitfalls below).
+2. **Correction loop data accumulation:** `review_history: list[ReviewResult]` (or similar) accumulates across loop iterations in graph state so the Solver, when it re-runs, receives the _specific_ prior issues rather than restarting from a blank slate — this is what "not starting over" requires structurally (see Pitfalls below).
 3. **Artifact persistence:** the Finalizer node (or a small persistence step after each major node) writes structured objects (ProblemAnalysis, Solution[], Editorial) to Garage; the Task row stores only a reference key, keeping Postgres rows small and Garage as the artifact system of record — matches the requirement.
 
 ## Scaling Considerations
 
-| Scale | Architecture Adjustments |
-|-------|--------------------------|
-| Solo/small user base (this milestone) | Single worker process, single Postgres instance, single Redis, single Garage node — Docker Compose as specified. This is entirely adequate. |
-| Moderate concurrent tasks | Scale taskiq worker replicas horizontally (stateless workers reading from the same Redis broker); Postgres connection pooling matters before Postgres itself becomes a bottleneck. |
+| Scale                                                      | Architecture Adjustments                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Solo/small user base (this milestone)                      | Single worker process, single Postgres instance, single Redis, single Garage node — Docker Compose as specified. This is entirely adequate.                                                                                                                                                                                   |
+| Moderate concurrent tasks                                  | Scale taskiq worker replicas horizontally (stateless workers reading from the same Redis broker); Postgres connection pooling matters before Postgres itself becomes a bottleneck.                                                                                                                                            |
 | High concurrency / many parallel fan-out branches per task | The Send-based fan-out (Pattern in Q3 below) means a single task can spawn N parallel LLM calls + N parallel subprocess executions; watch OpenAI rate limits and subprocess/CPU contention on the worker host before Postgres/Redis become the bottleneck — this is the more likely first constraint than raw request volume. |
 
 ### Scaling Priorities
@@ -318,21 +323,21 @@ The node wrapper that calls this tool from inside the graph is a thin adapter (`
 
 ### External Services
 
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| OpenAI API | Per-agent `ChatOpenAI`-style client instances built by a small factory (`llm/client_factory.py`) reading model name from config per agent | Retry/backoff on timeout/rate-limit is a stated requirement — implement at the client-factory or LangChain-client level, not scattered per node |
-| PostgreSQL | Two logical uses: (1) task-state table via a plain async driver/ORM, (2) LangGraph `AsyncPostgresSaver` for checkpoints | These can share one Postgres instance/database; checkpoint tables (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations`) are created by the checkpointer's own `setup()` — don't hand-roll migrations for them |
-| Redis | taskiq broker + result backend; optionally pub/sub channel for WS status fan-out | `taskiq-redis` is the maintained integration package; confirm exact broker class name against installed version at implementation time |
-| Garage (S3-compatible) | Any S3-compatible client (e.g. `boto3`/`aioboto3`) pointed at Garage's endpoint | Treat as opaque object storage — write/read JSON-serialized Pydantic model dumps keyed by `task_id/artifact_type` |
+| Service                | Integration Pattern                                                                                                                       | Notes                                                                                                                                                                                                                                     |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenAI API             | Per-agent `ChatOpenAI`-style client instances built by a small factory (`llm/client_factory.py`) reading model name from config per agent | Retry/backoff on timeout/rate-limit is a stated requirement — implement at the client-factory or LangChain-client level, not scattered per node                                                                                           |
+| PostgreSQL             | Two logical uses: (1) task-state table via a plain async driver/ORM, (2) LangGraph `AsyncPostgresSaver` for checkpoints                   | These can share one Postgres instance/database; checkpoint tables (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations`) are created by the checkpointer's own `setup()` — don't hand-roll migrations for them |
+| Redis                  | taskiq broker + result backend; optionally pub/sub channel for WS status fan-out                                                          | `taskiq-redis` is the maintained integration package; confirm exact broker class name against installed version at implementation time                                                                                                    |
+| Garage (S3-compatible) | Any S3-compatible client (e.g. `boto3`/`aioboto3`) pointed at Garage's endpoint                                                           | Treat as opaque object storage — write/read JSON-serialized Pydantic model dumps keyed by `task_id/artifact_type`                                                                                                                         |
 
 ### Internal Boundaries
 
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| `api/` ↔ `worker/` | Indirect, via taskiq broker (Redis) + shared Postgres task table | API never imports `graph/`; API and worker share only `schemas/`, `storage/`, `config.py` |
-| `graph/` ↔ `agents/*` | Direct function import (`add_node("solver", solver_node)`) | One-directional: agents never import from `graph/` |
-| `graph/` ↔ `tools/*` | Direct function import, tool call wrapped in a thin node adapter | Node adapter is where "tool as a graph node, not an agent" boundary is enforced |
-| Any node ↔ `schemas/` | Every node's return dict and every tool's return type is a `schemas/` Pydantic model | This is the actual seam that keeps modules decoupled in the absence of DDD layering |
+| Boundary              | Communication                                                                        | Notes                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `api/` ↔ `worker/`    | Indirect, via taskiq broker (Redis) + shared Postgres task table                     | API never imports `graph/`; API and worker share only `schemas/`, `storage/`, `config.py` |
+| `graph/` ↔ `agents/*` | Direct function import (`add_node("solver", solver_node)`)                           | One-directional: agents never import from `graph/`                                        |
+| `graph/` ↔ `tools/*`  | Direct function import, tool call wrapped in a thin node adapter                     | Node adapter is where "tool as a graph node, not an agent" boundary is enforced           |
+| Any node ↔ `schemas/` | Every node's return dict and every tool's return type is a `schemas/` Pydantic model | This is the actual seam that keeps modules decoupled in the absence of DDD layering       |
 
 ## Sources
 
@@ -350,5 +355,6 @@ The node wrapper that calls this tool from inside the graph is a thin adapter (`
 **Version-sensitivity flag for implementation time:** confirm the exact `add_conditional_edges` signature, whether `Command` vs conditional-edge-function is the currently-recommended idiom for this specific correction-loop shape, and the exact `AsyncPostgresSaver`/`taskiq-redis` broker class names/import paths against whatever LangGraph, `langgraph-checkpoint-postgres`, and `taskiq-redis` versions get pinned in `pyproject.toml` — these were confirmed against LangGraph 1.0 (Oct 2025 GA) source/docs but should not be assumed frozen without a quick check against the installed version's changelog.
 
 ---
-*Architecture research for: AlgoRunner (multi-agent LangGraph pipeline for algorithmic problem editorials)*
-*Researched: 2026-09-22*
+
+_Architecture research for: AlgoRunner (multi-agent LangGraph pipeline for algorithmic problem editorials)_
+_Researched: 2026-09-22_

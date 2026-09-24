@@ -16,7 +16,7 @@ as data.
 """
 
 from algorunner.agents.reviewer.prompts import format_review_history
-from algorunner.graph.state import GraphState
+from algorunner.graph.state import ApproachState
 from algorunner.schemas.typespec import TYPE_VOCABULARY_DOC
 
 _SYSTEM_PROMPT = f"""\
@@ -73,7 +73,7 @@ algorithm: {algorithm}
 """
 
 
-def build_code_messages(state: GraphState) -> list[dict]:
+def build_code_messages(state: ApproachState) -> list[dict]:
     """Builds the chat-completion messages for the Code Generator's
     structured-output call. Pure function of state - no I/O, no LLM call
     here."""

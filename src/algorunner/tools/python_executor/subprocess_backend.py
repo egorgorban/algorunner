@@ -32,7 +32,11 @@ import time
 from pathlib import Path
 
 from algorunner.schemas.execution import ExecutionResult
-from algorunner.tools.process import make_limit_fn, prepare_workdir, run_in_process_group
+from algorunner.tools.process import (
+    make_limit_fn,
+    prepare_workdir,
+    run_in_process_group,
+)
 
 _DENYLISTED_IMPORTS = {
     "os",

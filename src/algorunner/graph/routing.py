@@ -3,6 +3,9 @@ REV-04, REV-05).
 
 Pure Python: zero LLM calls, zero I/O. The category -> node table is costly to
 reverse (it is baked into the graph's conditional-edge structure).
+
+Works with both GraphState (parent) and ApproachState (branch) — both have
+the same review, iterations, and max_iterations fields.
 """
 
 from algorunner.graph.state import GraphState

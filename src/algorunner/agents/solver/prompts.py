@@ -1,19 +1,19 @@
-"""Prompt construction for the Solver node.
+"""Prompt construction for the Solver node (Phase 3 per-approach variant).
 
-Elaborates the deterministically-selected `state["approaches"][0]` into a
-concrete algorithm description and complexity reasoning. Does NOT ask for
-code or tests — those are Plan 02-04's Code Generator/Test Generator's job;
-asking the Solver to also produce them would conflate two later-separable
-pipeline stages and duplicate work the Code Generator redoes.
+Elaborates the branch's own approach (`state["approach"]`) into a concrete
+algorithm description and complexity reasoning. Each branch runs the Solver
+on its dedicated approach; in Phase 2, this elaborated approaches[0].
 
-Same DATA-delimiting prompt-injection framing as
-`solution_strategist/prompts.py` (T-02-03-01): the chosen approach is
-upstream-derived content, re-delimited here rather than trusted as
-instructions.
+Does NOT ask for code or tests — those are the Code Generator/Test Generator's job;
+asking the Solver to also produce them would conflate separable pipeline stages.
+
+Same DATA-delimiting prompt-injection framing as solution_strategist/prompts.py
+(T-02-03-01): the chosen approach is upstream-derived content, re-delimited
+here rather than trusted as instructions.
 """
 
 from algorunner.agents.reviewer.prompts import format_review_history
-from algorunner.graph.state import GraphState
+from algorunner.graph.state import ApproachState
 
 _SYSTEM_PROMPT = """\
 You are the Solver for AlgoRunner. Given a chosen solution approach for an \
@@ -45,10 +45,14 @@ summary: {summary}
 """
 
 
-def build_solver_messages(state: GraphState) -> list[dict]:
+def build_solver_messages(state: ApproachState) -> list[dict]:
     """Builds the chat-completion messages for the Solver's structured-
-    output call. Pure function of state — no I/O, no LLM call here."""
-    approach = state["approaches"][0]
+    output call. Pure function of state — no I/O, no LLM call here.
+
+    Reads state["approach"] (the branch's dedicated approach) and formats
+    a prompt for elaborating that specific approach.
+    """
+    approach = state["approach"]
     history = format_review_history(state.get("review_history") or [])
     return [
         {"role": "system", "content": _SYSTEM_PROMPT},

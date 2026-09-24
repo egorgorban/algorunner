@@ -19,7 +19,7 @@ from collections.abc import Sequence
 
 from algorunner.agents.reviewer.prompts import format_review_history
 from algorunner.config import settings
-from algorunner.graph.state import GraphState
+from algorunner.graph.state import ApproachState
 from algorunner.schemas.typespec import TYPE_VOCABULARY_DOC
 
 _SYSTEM_PROMPT = f"""\
@@ -83,7 +83,7 @@ def _signature(entry_point) -> str:
 
 
 def build_test_messages(
-    state: GraphState, pending_examples: Sequence[tuple[int, dict]] = ()
+    state: ApproachState, pending_examples: Sequence[tuple[int, dict]] = ()
 ) -> list[dict]:
     """Builds the chat-completion messages for the Test Generator's
     structured-output call. Pure function of state - no I/O, no LLM call
