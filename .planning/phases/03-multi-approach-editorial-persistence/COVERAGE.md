@@ -1,9 +1,9 @@
 # Phase 3: API Coverage Matrix
 
-**Detector:** `api-coverage.cjs` returned `detected:true` over the phase scope (the 03-01..03-04 PLAN bodies plus the ROADMAP Phase 3 section). Two external APIs are in scope:
+**Detector:** `api-coverage.cjs` returned `detected:true` over the phase scope (the 03-01..03-08 PLAN bodies plus the ROADMAP Phase 3 section). Two external APIs are in scope:
 
-1. **Garage S3 API** (new this phase, Plan 03-04). This is the S3-compatible object store for intermediate artifacts (DATA-02).
-2. **OpenAI Chat Completions structured outputs** (delta over Phase 2). A new Editorial Writer node reuses the same integration (Plans 03-01..03-03).
+1. **Garage S3 API** (new this phase: store in Plan 03-02, graph writes and live proof in Plan 03-08). This is the S3-compatible object store for intermediate artifacts (DATA-02).
+2. **OpenAI Chat Completions structured outputs** (delta over Phase 2). A new Editorial Writer node reuses the same integration (Plans 03-04..03-07).
 
 Coverage is full by default. Every capability starts as `INTEGRATE`, and each `OPT-OUT` carries a reason.
 
@@ -11,7 +11,7 @@ Coverage is full by default. Every capability starts as `INTEGRATE`, and each `O
 
 | capability | decision | reason |
 |---|---|---|
-| PutObject (JSON artifacts, UTF-8) | INTEGRATE | D-17/D-19 incremental writes: analysis, per-iteration solution/python_exec/go_exec/review, per-approach summary, editorial (Plans 03-04 T1-T2) |
+| PutObject (JSON artifacts, UTF-8) | INTEGRATE | D-17/D-19 incremental writes: analysis, per-iteration solution/python_exec/go_exec/review, per-approach summary, editorial (store: Plan 03-02 T1-T2; graph writes: Plan 03-08 T1) |
 | GetObject | INTEGRATE | Used by the live round-trip test and scripts/verify_phase3_live.py to prove stored code equals article code. No production reader, because the API serves results from Postgres (D-13) |
 | HeadObject | INTEGRATE | Used by scripts/verify_phase3_live.py to prove every key in result.artifact_keys exists (D-20) |
 | ListObjectsV2 | OPT-OUT | not needed: result.artifact_keys plus the deterministic D-19 key layout make listing unnecessary. A FAILED task's trail is found by the tasks/{task_id}/ prefix with Garage's own tooling |
@@ -31,7 +31,7 @@ Coverage is full by default. Every capability starts as `INTEGRATE`, and each `O
 | capability | decision | reason |
 |---|---|---|
 | Structured outputs via chat.completions.parse (EditorialDraft) | INTEGRATE | New Editorial Writer node: one call per article (D-15), plus at most one retry (D-16) |
-| Per-request `timeout` on parse | INTEGRATE | Writer per-attempt timeout (settings.editorial_attempt_timeout_s) inside the D-10 reserve (Plan 03-02) |
+| Per-request `timeout` on parse | INTEGRATE | Writer per-attempt timeout (settings.editorial_attempt_timeout_s) inside the D-10 reserve (Plan 03-05) |
 | Timeout/rate-limit retry with backoff (tenacity `call_structured`) | INTEGRATE | Reused unchanged for the Writer (INFRA-03) |
 | Per-agent model configuration | INTEGRATE | New `editorial_writer_model` override resolved by `model_for("editorial_writer")` (ORCH-03 pattern) |
 | Streaming responses | OPT-OUT | not needed: the Writer returns one structured object, and live status streaming is Phase 4 WebSocket work, not token streaming |

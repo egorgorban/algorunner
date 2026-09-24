@@ -719,21 +719,25 @@ await asyncio.wait_for(graph.ainvoke(payload, config, context=ctx, durability="s
 | A5 | Garage key format must be `GK`+24 hex / 64-hex secret (the format that worked, others untested) | Pattern 8 | Garage refuses to start with other formats |
 | A6 | Artifact write budget: botocore 3 attempts + 10s `wait_for` | Pattern 8 | Slow pipeline during a Garage outage |
 | A7 | Tags stay the Strategist's `technique` strings, which may be English (e.g. "two pointers") | Pattern 6 | EDIT-01 purists may want Russian tags; the Writer could supply `tags_ru` instead |
-| A8 | When the Writer fails validation twice (IDs mismatch / Cyrillic), the node raises and the task FAILS | Open Q1 | A verified task is lost, conflicting with the spirit of D-10 |
+| A8 | RESOLVED, user-confirmed (Open Q1): after the one retry, a structural failure FAILS the task with `EDITORIAL_ASSEMBLY_FAILED`, and a language/completeness failure ships the verified article with `result.editorial_warnings` | Open Q1 | No longer an assumption |
 | A9 | Parent-level-only status transitions (no per-branch statuses) | Pattern 11 | Less granular progress until Phase 4 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **What happens after the second Writer failure (D-16 says "retry once" and stops there)?**
+1. **What happens after the second Writer failure (D-16 says "retry once" and stops there)?** RESOLVED (user-confirmed, 2026-09-24).
    - What we know: one retry is locked. Assembly validation (ID set) and the Cyrillic check can both fail.
-   - What's unclear: whether to ship a non-Russian or partial article, or FAIL.
-   - Recommendation: on a Cyrillic failure after the retry, ship anyway with a logged warning and an `editorial_language_check_failed: true` flag in `result`. On a structural (ID) failure, raise → FAILED with code `EDITORIAL_ASSEMBLY_FAILED`. Confirm with the user.
-2. **Should FAILED tasks expose their Garage keys in Postgres?**
+   - Decision (confirmed by the user, not an assumption): split by failure type.
+     - A language or completeness failure that survives the one retry (Cyrillic ratio below threshold, Reviewer edge cases missing, minor notes missing) ships the verified article. `result.editorial_warnings` names each failure (`language_check_failed`, `edge_cases_missing`, `notes_missing`) and a warning is logged.
+     - A structural failure (the draft's approach IDs do not match the verified outcomes, or a bridge rule is broken) fails the task with `EDITORIAL_ASSEMBLY_FAILED`. When only the retry is structurally invalid, the first attempt's valid article ships with its warnings.
+   - The single-flag shape first recommended here (`editorial_language_check_failed: true`) is replaced by the `editorial_warnings` list, which also carries the completeness warnings.
+   - Carried by Plan 03-06 (Russian check, shared retry, hard/soft split) and Plan 03-07 (completeness warnings).
+2. **Should FAILED tasks expose their Garage keys in Postgres?** RESOLVED.
    - D-13/D-20 describe `result` for completed tasks. The trail is discoverable by the prefix `tasks/{task_id}/`.
-   - Recommendation: leave `result` null on FAILED. The prefix is enough for v1.
-3. **Crash-redelivery resume semantics.**
-   - `solve_problem` re-invokes with input (a restart), not `None` (a resume). Pre-existing Phase 2 behaviour; out of scope.
-   - Recommendation: keep as-is. The Overwrite reset + idempotent keys keep it safe.
+   - Decision: a FAILED task keeps `result = null` and exposes no keys in Postgres. Its Garage trail is found by the `tasks/{task_id}/` prefix.
+   - Carried by Plan 03-01 (`finalize_failed` leaves `result` null) and Plan 03-08 (the FAILED trail is still written).
+3. **Crash-redelivery resume semantics.** RESOLVED.
+   - `solve_problem` re-invokes with input (a restart), not `None` (a resume). This is pre-existing Phase 2 behaviour and out of scope.
+   - Decision: keep restart-from-input. The dict-by-index reducer (Plan 03-01) plus the Strategist's `Overwrite({})` reset (Plan 03-03) keep outcomes duplicate-free. A redelivered restart rewrites the same `(idx, n)` iteration keys (Plan 03-08), so key immutability holds within one invocation only.
 
 ## Environment Availability
 

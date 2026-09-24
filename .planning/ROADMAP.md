@@ -113,24 +113,40 @@ Plans:
   3. The article surfaces the difficulty rating, topic/technique tags, and the edge cases the Reviewer identified as handled, and reflects any resolved clarification in the problem restatement
   4. The full pipeline (Analyzer → Strategist → Solver → Code Generator → Test Generator → Executors → Reviewer → correction loop → Editorial Writer) runs as one deterministic LangGraph StateGraph, and every intermediate artifact (analysis, each solution's code/tests/review history, final editorial) is persisted to Garage
 
-**Plans**: 4 plans
+**Plans**: 8 plans
 
 Plans:
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — Tracer: Send fan-out of per-approach subgraphs → join → Editorial Writer (verbatim executed code, injected difficulty/tags/Big-O) → D-13 result; env repair + boto3 legitimacy gate; branch isolation and Phase 2 regressions on the new shape
+- [ ] 03-01-PLAN.md — Tracer: Send fan-out of per-approach subgraphs → join once → D-13 approaches index in tasks.result; env repair gate; Phase 2 regressions on the per-branch shape
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-02-PLAN.md — Strategist curation (role + rationale, cap max_approaches, dedup) and the 20-min time budget (deadline-bounded branches ship verified ones, Writer reserve, executor semaphore, status transitions, recursion limit)
+- [ ] 03-02-PLAN.md — Garage artifact store: boto3 legitimacy gate, D-19 key builders, bounded warn-and-continue writes, recorder, compose bucket/key provisioning
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 03-03-PLAN.md — Russian guarantee (Cyrillic check + one shared retry, EDITORIAL_ASSEMBLY_FAILED vs warnings) and editorial completeness (Reviewer-confirmed edge cases, minor notes, clarifications/assumption in the restatement)
+- [ ] 03-03-PLAN.md — Strategist curation (role + rationale, cap max_approaches, dedup) + branch hardening (isolation, join-once, per-branch budget, idempotent re-invoke)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 03-04-PLAN.md — Garage persistence (boto3 store, compose bucket/key provisioning, incremental D-19 trail, written-keys-only result) + live full-stack phase acceptance
+- [ ] 03-04-PLAN.md — Editorial Writer: one-call Russian prose draft + deterministic assembly (verbatim executed code, injected difficulty/tags/role/Big-O) → result.editorial
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 03-05-PLAN.md — 20-min time budget (deadline-bounded branches ship verified ones, Writer reserve + model override, executor semaphore, status transitions, recursion limit) + branch-node typing
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 03-06-PLAN.md — Russian guarantee: Cyrillic check + one shared retry, user-confirmed split (EDITORIAL_ASSEMBLY_FAILED vs shipped with editorial_warnings)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 03-07-PLAN.md — Editorial completeness: Reviewer-confirmed edge cases, minor notes, clarifications/assumption in the restatement
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [ ] 03-08-PLAN.md — Incremental Garage persistence across the graph (incl. the zero-verified timeout trail), written-keys-only result + live full-stack phase acceptance
 
 ### Phase 4: Realtime Streaming, Frontend & Documentation
 
