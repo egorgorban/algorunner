@@ -63,6 +63,9 @@ class GraphState(TypedDict):
     # Plan 03-04: Editorial Writer fills this after the join when at least one
     # approach is verified, with a Russian-prose Editorial.
     editorial: Editorial | None
+    # Plan 03-06: Warnings from the Writer's deterministic checks
+    # (language_check_failed if Russian check fails after retry, etc.)
+    editorial_warnings: list[str]
     result: dict | None
     error: dict | None
 

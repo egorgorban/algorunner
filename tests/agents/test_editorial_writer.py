@@ -256,3 +256,83 @@ class TestProseFields:
         fields = prose_fields(draft)
         # Should include problem_restatement
         assert fields == ["Problem"]
+
+
+class TestEditorialWriterNodeRetryLogic:
+    """Tests for the editorial_writer_node two-attempt retry logic (D-16)."""
+
+    async def test_soft_warnings_language_check_failed(self):
+        """soft_warnings returns language_check_failed when Russian check fails."""
+        from algorunner.agents.editorial_writer.node import soft_warnings
+        from algorunner.schemas.problem import ProblemAnalysis
+
+        # Create a draft with English text (will fail Russian check)
+        english_draft = EditorialDraft(
+            problem_restatement="This is purely English text",
+            approaches=[
+                ApproachProse(
+                    approach_id=0,
+                    title="English approach title here",
+                    bridge_from_previous=None,
+                    intuition="English intuition text",
+                    algorithm="English algorithm description",
+                    complexity_time="O(n)",
+                    complexity_space="O(1)",
+                    complexity_justification="English justification",
+                    notes=[],
+                ),
+            ],
+            edge_cases=[],
+            unverified=[],
+        )
+
+        analysis = ProblemAnalysis(
+            intent="Test",
+            constraints=[],
+            input_shape="list[int]",
+            output_shape="int",
+            difficulty="easy",
+            needs_clarification=False,
+            clarification_question=None,
+        )
+
+        warnings = soft_warnings(english_draft, analysis)
+        assert "language_check_failed" in warnings
+
+    async def test_soft_warnings_russian_passes(self):
+        """soft_warnings returns empty list for valid Russian draft."""
+        from algorunner.agents.editorial_writer.node import soft_warnings
+        from algorunner.schemas.problem import ProblemAnalysis
+
+        # Create a draft with Russian text
+        russian_draft = EditorialDraft(
+            problem_restatement="Это русский текст для проверки",
+            approaches=[
+                ApproachProse(
+                    approach_id=0,
+                    title="Русский подход",
+                    bridge_from_previous=None,
+                    intuition="Русская интуиция",
+                    algorithm="Русский алгоритм",
+                    complexity_time="O(n)",
+                    complexity_space="O(1)",
+                    complexity_justification="Русское объяснение сложности",
+                    notes=[],
+                ),
+            ],
+            edge_cases=["Русский граничный случай"],
+            unverified=[],
+        )
+
+        analysis = ProblemAnalysis(
+            intent="Test",
+            constraints=[],
+            input_shape="list[int]",
+            output_shape="int",
+            difficulty="easy",
+            needs_clarification=False,
+            clarification_question=None,
+        )
+
+        warnings = soft_warnings(russian_draft, analysis)
+        assert len(warnings) == 0

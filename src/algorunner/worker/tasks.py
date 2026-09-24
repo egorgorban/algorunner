@@ -190,6 +190,7 @@ async def solve_problem(task_id: str) -> None:
             "max_iterations": settings.max_iterations,
             "approach_outcomes": {},
             "editorial": None,
+            "editorial_warnings": [],
             "result": None,
             "error": None,
         }

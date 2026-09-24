@@ -12,17 +12,20 @@ def build_editorial_messages(
     state: dict,
     verified: list[ApproachOutcome],
     unverified: list[ApproachOutcome],
+    retry_reason: str | None = None,
 ) -> list[dict]:
     """Build the LLM prompt messages for the Editorial Writer.
 
     System prompt instructs Russian prose, no code, and proper formatting.
     User message fences problem, analysis, and approach data as DATA blocks,
-    never including Python or Go source code.
+    never including Python or Go source code. On retry, a section names the
+    failure reason (structural or language check).
 
     Args:
         state: The current graph state
         verified: List of verified ApproachOutcome objects
         unverified: List of unverified ApproachOutcome objects
+        retry_reason: If set, appends a "Your previous draft was rejected because:" section (D-16)
 
     Returns:
         List of message dicts for the LLM
@@ -89,6 +92,10 @@ VERIFIED APPROACHES (all must appear in your output):
 
     if unverified:
         user_message += f"\n\nUNVERIFIED APPROACHES (include as brief mentions with status but no code):\n{chr(10).join(unverified_data_parts)}"
+
+    # D-16: append retry reason if set
+    if retry_reason:
+        user_message += f"\n\n---\n\nYour previous draft was rejected because:\n```\n{retry_reason}\n```\n\nPlease revise the editorial to address this issue."
 
     return [
         {"role": "system", "content": system_prompt},
