@@ -40,20 +40,26 @@ async def _setup(pg_pool, monkeypatch, mock_pipeline_openai, analyzer_needs: lis
     make the Analyzer's clarification flag follow `analyzer_needs` (last value
     repeats)."""
     fake_client = mock_pipeline_openai
+    # Get canned responses from the mock's own dispatch
+    default_dispatch = fake_client.default_dispatch
     by_type: dict[str, object] = {}
-    for _ in range(6):
-        completion = await fake_client.chat.completions.parse()
-        by_type[type(completion.choices[0].message.parsed).__name__] = completion
+
+    # Wrap canned responses in completion envelope
+    for name, parsed in fake_client.canned.items():
+        by_type[name] = _completion(parsed)
 
     analyzer_calls: list[list[dict]] = []
 
     async def dispatch(**kwargs):
-        name = kwargs["response_format"].__name__
+        name = kwargs.get("response_format", type(None)).__name__
         if name == "ProblemAnalysis":
             idx = min(len(analyzer_calls), len(analyzer_needs) - 1)
             analyzer_calls.append(kwargs["messages"])
             return _completion(_analysis(analyzer_needs[idx]))
-        return by_type[name]
+        # Use canned completion if available, else fall back to default dispatch
+        if name in by_type:
+            return by_type[name]
+        return await default_dispatch(**kwargs)
 
     fake_client.chat.completions.parse = AsyncMock(side_effect=dispatch)
     monkeypatch.setattr(client_factory_module, "get_client", lambda: fake_client)
@@ -119,5 +125,6 @@ async def test_round_cap_forces_assumption_instead_of_third_pause(
     assert "__interrupt__" not in third
     assert third["error"] is None
     assert len(analyzer_calls) == 3
-    assumption = third["result"]["assumption_stated"]
+    # Phase 3: assumption_stated is now at state level, not in result
+    assumption = third.get("assumption_stated")
     assert isinstance(assumption, str) and assumption

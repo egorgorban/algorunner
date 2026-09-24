@@ -38,7 +38,12 @@ async def test_solve_problem_happy_path_completes(pg_pool, mock_pipeline_openai)
     assert record is not None
     assert record.status == "completed"
     assert record.result is not None
-    assert record.result["analysis"] is not None
+    # Phase 3: result shape now has "approaches" (D-13), not per-solution keys
+    assert "approaches" in record.result
+    assert len(record.result["approaches"]) >= 1
+    # No longer carries analysis, solution, etc. at result level
+    assert "solution" not in record.result
+    assert "analysis" not in record.result
 
 
 async def test_solve_problem_unhandled_exception_writes_structured_error_and_reraises(

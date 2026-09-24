@@ -98,9 +98,26 @@ async def test_solver_node_returns_algorithm_and_complexity(monkeypatch):
     )
     monkeypatch.setattr(client_factory_module, "get_client", lambda: _fake_client(solver_output))
     approach = Approach(name="Hash map lookup", technique="hash map", summary="One pass.")
-    state = _base_state(analysis=_analysis(), approaches=[approach])
+    # Phase 3: solver_node now expects ApproachState with approach (not approaches list)
+    branch_state = {
+        "task_id": "test-task",
+        "approach_idx": 0,
+        "approach": approach,
+        "problem_text": "two sum",
+        "examples": [],
+        "analysis": _analysis(),
+        "assumption_stated": None,
+        "max_iterations": 5,
+        "solver_output": None,
+        "solution": None,
+        "python_execution": None,
+        "go_execution": None,
+        "review": None,
+        "review_history": [],
+        "iterations": 0,
+    }
 
-    update = await solver_node(state)
+    update = await solver_node(branch_state)
 
     result = update["solver_output"]
     assert result["approach"] == approach
