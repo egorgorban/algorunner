@@ -73,15 +73,14 @@ def test_routing_missing_review_is_never_success():
 async def test_always_failing_review_exhausts_max_iterations_cleanly(
     pg_pool, mock_pipeline_openai, monkeypatch
 ):
-    fake_client = mock_pipeline_openai
-    parse = fake_client.chat.completions.parse
-    # Drain the fixture's five first-pass completions (analyzer, strategist,
-    # solver, code_generator, test_generator); the sixth (passing review) is
-    # unused because the dispatcher below replaces the whole mock.
-    by_type: dict[str, object] = {}
-    for _ in range(5):
-        completion = await parse()
-        by_type[type(completion.choices[0].message.parsed).__name__] = completion
+    """Single-approach correction loop: with max_iterations=2 and always-failing review,
+    the branch exhausts after 2 iterations; per-approach outcome is 'exhausted', with
+    Solver called twice and full history in second Solver prompt (Phase-3 per-branch D-06)."""
+
+    # Wrap the dispatcher to handle the single-approach scenario
+    default_dispatch = mock_pipeline_openai.default_dispatch
+    calls: list[str] = []
+    solver_prompts: list[list[dict]] = []
 
     failing = ReviewResult(
         passed=False,
@@ -92,20 +91,33 @@ async def test_always_failing_review_exhausts_max_iterations_cleanly(
     failing_completion = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(parsed=failing, refusal=None))]
     )
-    calls: list[str] = []
-    solver_prompts: list[list[dict]] = []
 
-    async def dispatch(**kwargs):
-        name = kwargs["response_format"].__name__
+    async def custom_dispatch(**kwargs):
+        name = kwargs.get("response_format", type(None)).__name__
         calls.append(name)
-        if name == "SolverOutput":
-            solver_prompts.append(kwargs["messages"])
+
+        # Override ApproachList to return a single approach (hash map)
+        if name == "ApproachList":
+            single_approach = mock_pipeline_openai.canned["ApproachList"].__class__(
+                approaches=[mock_pipeline_openai.canned["ApproachList"].approaches[1]]  # "Hash map lookup"
+            )
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(parsed=single_approach, refusal=None))]
+            )
+
+        # Override ReviewResult to always fail
         if name == "ReviewResult":
             return failing_completion
-        return by_type[name]
 
-    fake_client.chat.completions.parse = AsyncMock(side_effect=dispatch)
-    monkeypatch.setattr(client_factory_module, "get_client", lambda: fake_client)
+        # Track Solver prompts for history check
+        if name == "SolverOutput":
+            solver_prompts.append(kwargs.get("messages", []))
+
+        # Use default dispatch for everything else
+        return await default_dispatch(**kwargs)
+
+    mock_pipeline_openai.chat.completions.parse = AsyncMock(side_effect=custom_dispatch)
+    monkeypatch.setattr(client_factory_module, "get_client", lambda: mock_pipeline_openai)
 
     checkpointer = AsyncPostgresSaver(pg_pool)
     await checkpointer.setup()
@@ -121,12 +133,25 @@ async def test_always_failing_review_exhausts_max_iterations_cleanly(
     except GraphRecursionError:
         raise AssertionError("correction loop hit the recursion limit") from None
 
+    # Single approach exhausted - phase 3 error format
     assert result_state["error"]["code"] == "CORRECTION_LOOP_EXHAUSTED"
+    assert "0 of 1 approaches verified:" in result_state["error"]["message"]
     assert result_state["result"] is None
-    assert result_state["iterations"] == 2
-    assert len(result_state["review_history"]) == 2
-    assert calls.count("SolverOutput") > 1  # loop really re-entered the solver
+
+    # Per-approach outcome verification
+    outcomes = result_state.get("approach_outcomes", {})
+    assert 0 in outcomes  # single approach at index 0
+    outcome = outcomes[0]
+    assert outcome.status == "exhausted"
+    assert outcome.iterations == 2
+    assert outcome.final_review is not None
+    assert outcome.final_review.passed is False
+
+    # Solver re-entered the loop
+    assert calls.count("SolverOutput") > 1
     assert calls.count("ReviewResult") == 2
-    # full history reached the second solver prompt (D-06, REV-04)
+
+    # Full history in second solver prompt (D-06: Attempt 1 label)
+    assert len(solver_prompts) >= 2
     assert "Attempt 1" in solver_prompts[1][-1]["content"]
     assert "Attempt 1" not in solver_prompts[0][-1]["content"]

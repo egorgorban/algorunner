@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock
 import algorunner.agents.test_generator.node as test_generator_node_module
 import algorunner.llm.client_factory as client_factory_module
 from algorunner.agents.code_generator.node import CodeGenOutput, code_generator_node
-from algorunner.graph.build import execute_go_node, execute_python_node
+from algorunner.graph.approach import execute_go_node, execute_python_node
 from algorunner.schemas.problem import ProblemAnalysis
 from algorunner.schemas.solution import Approach, EntryParam, EntryPoint
 
