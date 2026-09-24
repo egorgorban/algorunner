@@ -12,6 +12,11 @@ from algorunner.agents.code_generator.node import CodeGenOutput
 from algorunner.agents.solver.node import SolverOutput
 from algorunner.agents.test_generator.node import GeneratedTests, TestCase
 from algorunner.api.main import app
+from algorunner.schemas.editorial import (
+    ApproachProse,
+    EditorialDraft,
+    UnverifiedMention,
+)
 from algorunner.schemas.problem import ProblemAnalysis
 from algorunner.schemas.review import ReviewResult
 from algorunner.schemas.solution import Approach, ApproachList, EntryParam, EntryPoint
@@ -101,10 +106,19 @@ def mock_pipeline_openai(monkeypatch):
     approaches = ApproachList(
         approaches=[
             Approach(
+                name="Brute force pairs",
+                technique="brute force",
+                summary="Check all pairs.",
+                role="brute_force",
+                rationale="Simple but inefficient baseline.",
+            ),
+            Approach(
                 name="Hash map lookup",
                 technique="hash map",
                 summary="Track complements in a hash map for one pass.",
-            )
+                role="optimized",
+                rationale="Reduces time complexity with a hash map.",
+            ),
         ]
     )
     solver_output = SolverOutput(
@@ -174,6 +188,7 @@ def mock_pipeline_openai(monkeypatch):
         issues=[],
         required_changes=[],
         complexity_reasoning="One loop over n items with O(1) dict operations gives O(n) time.",
+        handled_edge_cases=["duplicate values", "negative numbers"],
     )
 
     def _completion(parsed):
@@ -181,21 +196,112 @@ def mock_pipeline_openai(monkeypatch):
             choices=[SimpleNamespace(message=SimpleNamespace(parsed=parsed, refusal=None))]
         )
 
+    # Phase 3: fan-out means solver, code_gen, test_gen, reviewer are called per-approach (x2)
+    # analyzer (1x) -> analysis
+    # strategist (1x) -> approaches
+    # solver (2x) -> solver_output
+    # code_generator (2x) -> code_gen_output
+    # test_generator (2x) -> generated_tests
+    # reviewer (2x) -> passing_review
+    # editorial_writer (1x if any verified, 0x if none) -> EditorialDraft
+
+    # Create side_effect list with editorial_draft placeholder (will be filled after editorial_draft definition)
+    side_effects = [
+        _completion(analysis),
+        _completion(approaches),
+        # Approach 0 solver
+        _completion(solver_output),
+        # Approach 1 solver
+        _completion(solver_output),
+        # Approach 0 code_gen
+        _completion(code_gen_output),
+        # Approach 1 code_gen
+        _completion(code_gen_output),
+        # Approach 0 test_gen
+        _completion(generated_tests),
+        # Approach 1 test_gen
+        _completion(generated_tests),
+        # Approach 0 reviewer
+        _completion(passing_review),
+        # Approach 1 reviewer
+        _completion(passing_review),
+        # Editorial writer placeholder (will add actual draft after editorial_draft is created)
+        "EDITORIAL_PLACEHOLDER",
+    ]
+
     fake_client = SimpleNamespace(
         chat=SimpleNamespace(
             completions=SimpleNamespace(
-                parse=AsyncMock(
-                    side_effect=[
-                        _completion(analysis),
-                        _completion(approaches),
-                        _completion(solver_output),
-                        _completion(code_gen_output),
-                        _completion(generated_tests),
-                        _completion(passing_review),
-                    ]
-                )
+                parse=AsyncMock()  # Will set side_effect after editorial_draft
             )
         )
     )
     monkeypatch.setattr(client_factory_module, "get_client", lambda: fake_client)
+
+    # Store canned EditorialDraft for tests that need it
+    editorial_draft = EditorialDraft(
+        problem_restatement="Найти два числа в массиве, которые суммируются к целевому значению.",
+        approaches=[
+            ApproachProse(
+                approach_id=0,
+                title="Перебор всех пар",
+                bridge_from_previous=None,
+                intuition="Проверяем все возможные пары.",
+                algorithm="Двойной вложенный цикл по массиву.",
+                complexity_time="O(n^2)",
+                complexity_space="O(1)",
+                complexity_justification="Два вложенных цикла.",
+                notes=[],
+            ),
+            ApproachProse(
+                approach_id=1,
+                title="Хеш-таблица",
+                bridge_from_previous="Более эффективно использует дополнение.",
+                intuition="Отслеживаем дополнения в хеш-таблице.",
+                algorithm="Один проход с хеш-таблицей.",
+                complexity_time="O(n)",
+                complexity_space="O(n)",
+                complexity_justification="Один проход с O(1) хеш-операциями.",
+                notes=[],
+            ),
+        ],
+        edge_cases=["Пустой массив", "Массив длины 2"],
+        unverified=[],
+    )
+
+    # Now that editorial_draft is defined, replace the placeholder in side_effects
+    side_effects[-1] = _completion(editorial_draft)
+    fake_client.chat.completions.parse.side_effect = side_effects
+
+    # Create a default EditorialDraft for the mock
+    default_editorial = EditorialDraft(
+        problem_restatement=editorial_draft.problem_restatement,
+        approaches=editorial_draft.approaches,
+        edge_cases=editorial_draft.edge_cases,
+        unverified=editorial_draft.unverified,
+    )
+
+    def draft_for(ids: list[int]) -> SimpleNamespace:
+        """Create a completion with an EditorialDraft containing only the specified approach ids.
+
+        Used by tests where only some approaches are verified (isolation case).
+        """
+        filtered_approaches = [a for a in editorial_draft.approaches if a.approach_id in ids]
+        # Ensure first bridge is None, rest are set
+        if filtered_approaches:
+            filtered_approaches[0].bridge_from_previous = None
+            for approach in filtered_approaches[1:]:
+                if approach.bridge_from_previous is None:
+                    approach.bridge_from_previous = "Улучшенный подход."
+
+        draft = EditorialDraft(
+            problem_restatement=editorial_draft.problem_restatement,
+            approaches=filtered_approaches,
+            edge_cases=editorial_draft.edge_cases,
+            unverified=[],
+        )
+        return _completion(draft)
+
+    fake_client.editorial_draft = editorial_draft
+    fake_client.draft_for = draft_for
     return fake_client
