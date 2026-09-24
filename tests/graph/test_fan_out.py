@@ -58,32 +58,32 @@ def _state(approach_outcomes: dict[int, ApproachOutcome]) -> dict:
     return {"approach_outcomes": approach_outcomes}
 
 
-def test_router_one_verified_one_errored_routes_success():
-    """One branch verified, one errored -> finalize_success (D-05, D-06)."""
+def test_router_one_verified_one_errored_routes_editorial():
+    """One branch verified, one errored -> editorial_writer (D-05, D-06, Plan 03-04)."""
     outcomes = {
         0: _outcome(0, "errored", "Code generator refused"),
         1: _outcome(1, "verified"),
     }
-    assert decide_after_join(_state(outcomes)) == "finalize_success"
+    assert decide_after_join(_state(outcomes)) == "editorial_writer"
 
 
-def test_router_both_verified_routes_success():
-    """Both verified -> finalize_success."""
+def test_router_both_verified_routes_editorial():
+    """Both verified -> editorial_writer (Plan 03-04)."""
     outcomes = {
         0: _outcome(0, "verified"),
         1: _outcome(1, "verified"),
     }
-    assert decide_after_join(_state(outcomes)) == "finalize_success"
+    assert decide_after_join(_state(outcomes)) == "editorial_writer"
 
 
-def test_router_one_verified_rest_any_status_routes_success():
-    """One verified, others exhausted/timed_out/errored -> finalize_success."""
+def test_router_one_verified_rest_any_status_routes_editorial():
+    """One verified, others exhausted/timed_out/errored -> editorial_writer (Plan 03-04)."""
     outcomes = {
         0: _outcome(0, "exhausted"),
         1: _outcome(1, "verified"),
         2: _outcome(2, "timed_out"),
     }
-    assert decide_after_join(_state(outcomes)) == "finalize_success"
+    assert decide_after_join(_state(outcomes)) == "editorial_writer"
 
 
 def test_router_all_exhausted_routes_failed():
@@ -147,12 +147,14 @@ async def test_single_verified_approach_two_approach_run_completes_successfully(
     fake_client = mock_pipeline_openai
     parse = fake_client.chat.completions.parse
 
-    # Drain first five completions (analyzer, strategist, two solvers, one code_gen)
+    # Drain completions to fill by_type cache (analyzer, strategist, two solvers, one code_gen, test_gen, two reviewers)
     # to fill by_type, then replace with custom dispatch
     by_type: dict[str, object] = {}
-    for _ in range(5):
+    for _ in range(8):  # Increased to capture ReviewResult
         completion = await parse()
-        by_type[type(completion.choices[0].message.parsed).__name__] = completion
+        type_name = type(completion.choices[0].message.parsed).__name__
+        if type_name not in by_type:  # Keep first occurrence of each type
+            by_type[type_name] = completion
 
     # Dispatch: first approach (index 0) code generator refuses; second (index 1) passes
     approaches_returned = 0
@@ -161,11 +163,11 @@ async def test_single_verified_approach_two_approach_run_completes_successfully(
     async def dispatch(**kwargs):
         nonlocal approaches_returned, first_code_gen_called
         name = kwargs["response_format"].__name__
-        if name == "ApproachList":
-            approaches_returned += 1
-            return by_type["ApproachList"]
-        if name == "SolverOutput":
-            return by_type["SolverOutput"]
+        if name in by_type:
+            # Return cached responses for standard types
+            if name == "ApproachList":
+                approaches_returned += 1
+            return by_type[name]
         if name == "CodeGenOutput":
             if not first_code_gen_called:
                 first_code_gen_called = True
@@ -174,11 +176,7 @@ async def test_single_verified_approach_two_approach_run_completes_successfully(
                     choices=[SimpleNamespace(message=SimpleNamespace(parsed=None, refusal="Too hard"))]
                 )
             # Second code_gen (approach 1) succeeds
-            return by_type["CodeGenOutput"]
-        if name == "GeneratedTests":
-            return by_type["GeneratedTests"]
-        if name == "ReviewResult":
-            return by_type["ReviewResult"]
+            return by_type[name]
         raise ValueError(f"Unexpected response_format: {name}")
 
     fake_client.chat.completions.parse = AsyncMock(side_effect=dispatch)

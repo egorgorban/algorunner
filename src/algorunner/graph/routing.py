@@ -24,10 +24,15 @@ _TARGET_PRIORITY = ["solver", "code_generator"]
 
 
 def decide_after_analysis(state: GraphState) -> str:
+    """Route after analysis: clarification_gate if clarification needed, else record_analysis.
+
+    Plan 03-05: changed destination from "strategist" to "record_analysis" to emit
+    DESIGNING_SOLUTION status (Pattern 11, D-10).
+    """
     analysis = state.get("analysis")
     if analysis is not None and analysis.needs_clarification:
         return "clarification_gate"
-    return "strategist"
+    return "record_analysis"
 
 
 def decide_after_review(state: GraphState) -> str:
