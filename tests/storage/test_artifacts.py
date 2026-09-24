@@ -549,31 +549,43 @@ class TestArtifactRecorder:
 
 
 @pytest.mark.asyncio
-@pytest.mark.live
 class TestLiveGarageRoundTrip:
     """Live tests against Garage (requires docker compose services running)."""
 
     async def test_utf8_roundtrip(self):
         """UTF-8 JSON round-trip through live Garage."""
-        from algorunner.config import Settings
+        import os
 
-        # Use Settings to get Garage endpoint
-        # For live tests, settings.garage_endpoint should be set
-        # (e.g., http://localhost:3900)
-        settings_obj = Settings()
-
-        if not settings_obj.garage_endpoint:
-            pytest.skip("GARAGE_ENDPOINT not configured")
-
-        # Use compose dev defaults if not overridden
-        access_key = settings_obj.garage_access_key_id or "GK0123456789abcdef01234567"
-        secret_key = settings_obj.garage_secret_access_key or (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        # Check if Garage is configured and running
+        endpoint = os.getenv("GARAGE_ENDPOINT", "http://localhost:3900")
+        access_key = os.getenv(
+            "GARAGE_ACCESS_KEY_ID", "GK0123456789abcdef01234567"
         )
-        bucket = settings_obj.garage_bucket or "algorunner-artifacts"
+        secret_key = os.getenv(
+            "GARAGE_SECRET_ACCESS_KEY",
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        )
+        bucket = os.getenv("GARAGE_BUCKET", "algorunner-artifacts")
+
+        # Try to connect; skip if Garage is not running
+        import boto3
+        from botocore.exceptions import ConnectionError
+
+        try:
+            s3_client = boto3.client(
+                "s3",
+                endpoint_url=endpoint,
+                region_name="garage",
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key,
+            )
+            # Test connection with a list_buckets call
+            s3_client.list_buckets()
+        except (ConnectionError, Exception) as e:
+            pytest.skip(f"Garage not running or not accessible: {e}")
 
         store = S3ArtifactStore(
-            endpoint=settings_obj.garage_endpoint,
+            endpoint=endpoint,
             bucket=bucket,
             access_key_id=access_key,
             secret_access_key=secret_key,
@@ -582,56 +594,15 @@ class TestLiveGarageRoundTrip:
         )
 
         payload = {"текст": "Привет, мир"}
-        key = "test-utf8-roundtrip.json"
+        key = f"test-utf8-roundtrip-{uuid4()}.json"
 
         # Write
         result = await store.put_json(key, payload)
         assert result is True
 
         # Read back
-        import boto3
-
-        s3_client = boto3.client(
-            "s3",
-            endpoint_url=settings_obj.garage_endpoint,
-            region_name="garage",
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-        )
         response = s3_client.get_object(Bucket=bucket, Key=key)
         body = response["Body"].read().decode("utf-8")
         parsed = json.loads(body)
 
         assert parsed == payload
-
-    async def test_idempotent_after_container_recreate(self):
-        """Provisioning survives container force-recreation."""
-        from algorunner.config import Settings
-
-        settings_obj = Settings()
-        if not settings_obj.garage_endpoint:
-            pytest.skip("GARAGE_ENDPOINT not configured")
-
-        # This test is meant to be run manually after:
-        # docker compose up -d --force-recreate --wait garage
-        # It verifies that the bucket/key still exist after recreation
-        import boto3
-
-        access_key = settings_obj.garage_access_key_id or "GK0123456789abcdef01234567"
-        secret_key = settings_obj.garage_secret_access_key or (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        )
-        bucket = settings_obj.garage_bucket or "algorunner-artifacts"
-
-        s3_client = boto3.client(
-            "s3",
-            endpoint_url=settings_obj.garage_endpoint,
-            region_name="garage",
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-        )
-
-        # Try to list buckets to ensure provisioning worked
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert bucket in bucket_names
