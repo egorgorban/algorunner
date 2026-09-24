@@ -31,7 +31,16 @@ services:
       - ./docker/garage/garage.toml:/etc/garage.toml:ro
       - garage-meta:/var/lib/garage/meta
       - garage-data:/var/lib/garage/data
-    command: ["/garage", "server", "--single-node"]
+    environment:
+      GARAGE_DEFAULT_ACCESS_KEY: ${GARAGE_ACCESS_KEY_ID:-GK0123456789abcdef01234567}
+      GARAGE_DEFAULT_SECRET_KEY: ${GARAGE_SECRET_ACCESS_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      GARAGE_DEFAULT_BUCKET: ${GARAGE_BUCKET:-algorunner-artifacts}
+    command: ["/garage", "server", "--single-node", "--default-bucket"]
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   api:
     build:
@@ -58,10 +67,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      garage:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql://algorunner:algorunner@postgres:5432/algorunner
       REDIS_URL: redis://redis:6379
       OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY must be set}
+      GARAGE_ENDPOINT: http://garage:3900
+      GARAGE_ACCESS_KEY_ID: ${GARAGE_ACCESS_KEY_ID:-GK0123456789abcdef01234567}
+      GARAGE_SECRET_ACCESS_KEY: ${GARAGE_SECRET_ACCESS_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      GARAGE_BUCKET: ${GARAGE_BUCKET:-algorunner-artifacts}
+      GARAGE_REGION: garage
     # Generated-code children run as uid 65534; block privilege gain through
     # setuid-root binaries present in the base image (CR-01).
     security_opt:

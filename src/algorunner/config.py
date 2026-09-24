@@ -13,9 +13,15 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql://algorunner:algorunner@localhost:5432/algorunner"
     redis_url: str = "redis://localhost:6379"
-    # Unused this phase per D-11 (Garage present in docker-compose but not
-    # wired to any client code until Phase 3 / DATA-02).
+    # Artifact storage endpoint (S3-compatible). Empty string disables persistence
+    # and yields artifacts_incomplete=true in the result. Compose sets
+    # http://garage:3900 for the worker.
     garage_endpoint: str = ""
+    garage_access_key_id: str = ""
+    garage_secret_access_key: str = ""
+    garage_bucket: str = "algorunner-artifacts"
+    garage_region: str = "garage"
+    artifact_write_timeout_s: float = 10.0
 
     # Required secret, no default (Pitfall 12) — Settings() must fail loudly
     # at construction time when unset, not defer the failure to the first
