@@ -1,4 +1,4 @@
-"""Conditional-edge router for the Reviewer -> correction loop (D-05, D-07,
+"""Conditional-edge routers for the Editorial Writer and correction loop (D-16, D-05, D-07,
 REV-04, REV-05).
 
 Pure Python: zero LLM calls, zero I/O. The category -> node table is costly to
@@ -8,7 +8,7 @@ Works with both GraphState (parent) and ApproachState (branch) — both have
 the same review, iterations, and max_iterations fields.
 """
 
-from algorunner.graph.state import GraphState
+from algorunner.graph.state import ApproachState, GraphState
 
 _CATEGORY_TO_NODE = {
     "algorithm_soundness": "solver",
@@ -35,7 +35,12 @@ def decide_after_analysis(state: GraphState) -> str:
     return "record_analysis"
 
 
-def decide_after_review(state: GraphState) -> str:
+def decide_after_review(state: ApproachState) -> str:
+    """Route after review in a per-approach branch (D-05, D-07, REV-04, REV-05).
+
+    The annotation changed from GraphState to ApproachState because this router
+    runs only inside the per-approach subgraph (not the parent graph).
+    """
     review = state.get("review")
     if review is None:
         # No structured verdict is never treated as success.
@@ -47,3 +52,17 @@ def decide_after_review(state: GraphState) -> str:
     critical = [i for i in review.issues if i.severity == "critical"]
     targets = {_CATEGORY_TO_NODE.get(i.category, "solver") for i in critical}
     return next((t for t in _TARGET_PRIORITY if t in targets), "solver")
+
+
+def decide_after_writer(state: GraphState) -> str:
+    """Route after Editorial Writer: finalize_success if editorial is set and no error,
+    else end (fail the task).
+
+    The Writer returns {"editorial": ..., "editorial_warnings": [...]} on success
+    (editorial is always present even if warnings exist) or {"error": ...} on
+    structural failure. The error dict goes to finalize_failed via the error handling
+    in _handle_result_or_pause.
+    """
+    if state.get("editorial") is not None and state.get("error") is None:
+        return "finalize_success"
+    return "end"

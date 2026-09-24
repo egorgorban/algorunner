@@ -22,6 +22,9 @@ from algorunner.schemas.typespec import (
     parse_type,
 )
 
+# D-03: Approach role labels for curation and narrative ordering
+ApproachRole = Literal["brute_force", "optimized", "alternative"]
+
 
 # Role labels for curated approaches (D-03, STRAT-02)
 ApproachRole = Literal["brute_force", "optimized", "alternative"]

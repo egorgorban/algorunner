@@ -5,7 +5,6 @@ ports) and inside the api/worker containers (which override these env vars
 with the postgres/redis service DNS names).
 """
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,15 +13,9 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql://algorunner:algorunner@localhost:5432/algorunner"
     redis_url: str = "redis://localhost:6379"
-    # Artifact storage endpoint (S3-compatible). Empty string disables persistence
-    # and yields artifacts_incomplete=true in the result. Compose sets
-    # http://garage:3900 for the worker.
+    # Unused this phase per D-11 (Garage present in docker-compose but not
+    # wired to any client code until Phase 3 / DATA-02).
     garage_endpoint: str = ""
-    garage_access_key_id: str = ""
-    garage_secret_access_key: str = ""
-    garage_bucket: str = "algorunner-artifacts"
-    garage_region: str = "garage"
-    artifact_write_timeout_s: float = 10.0
 
     # Required secret, no default (Pitfall 12) — Settings() must fail loudly
     # at construction time when unset, not defer the failure to the first
@@ -41,26 +34,21 @@ class Settings(BaseSettings):
     editorial_writer_model: str | None = None
 
     max_iterations: int = 5
-    max_approaches: int = Field(default=3, ge=1)  # D-01: cap on curated approaches
+    max_approaches: int = 3
     clarification_round_cap: int = 2
     test_generator_min_tests: int = 10
-    # D-07: global 20-minute solve budget. When active_execution_seconds reaches
-    # this, further invocations are failed with GLOBAL_TIMEOUT rather than run.
+    # D-07: global 20-minute solve budget
     global_timeout_s: int = 1200
-
-    # D-10: Writer reserve time, deducted from each branch's remaining budget.
-    # A branch whose remaining budget minus this reserve is <= 0 times out
-    # without invoking the subgraph.
+    # D-10: Writer reserve time, deducted from branch remaining budget
     editorial_reserve_s: float = 240.0
-
-    # ORCH-03: per-attempt timeout for the Editorial Writer's LLM call.
-    # Plan 03-06 adds retry logic; each attempt gets this budget independently.
+    # ORCH-03: per-attempt timeout for Editorial Writer's LLM call
     editorial_attempt_timeout_s: float = 100.0
+    # RESEARCH A1: Cyrillic-ratio thresholds for Russian language check (D-16)
+    editorial_cyrillic_min_ratio: float = 0.6
+    editorial_cyrillic_field_min_ratio: float = 0.3
 
-    # Pitfall 5: max concurrent executor runs (Python or Go) across all branches
-    # of a worker process. Prevents starving CPU when multiple branches run in
-    # parallel (relevant for Go build concurrency). Must be >= 1.
-    executor_max_concurrency: int = Field(default=4, ge=1)
+    # Pitfall 5: max concurrent executor runs across all branches
+    executor_max_concurrency: int = 4
 
     retry_max_attempts: int = 5
     retry_wait_min_s: float = 2.0

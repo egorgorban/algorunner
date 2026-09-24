@@ -28,7 +28,7 @@ from algorunner.agents.problem_analyzer.node import problem_analyzer_node
 from algorunner.agents.solution_strategist.node import solution_strategist_node
 from algorunner.graph.approach import decide_after_join, fan_out_approaches
 from algorunner.graph.context import PipelineContext, emit_status
-from algorunner.graph.routing import decide_after_analysis
+from algorunner.graph.routing import decide_after_analysis, decide_after_writer
 from algorunner.graph.state import GraphState
 from algorunner.schemas.execution import ExecutionResult
 from algorunner.schemas.task import TaskStatus
@@ -75,6 +75,7 @@ async def finalize_success(state: GraphState) -> dict:
     - approaches: array of {approach_id, name, technique, role, status, iterations}
       in ascending approach_id order
     - editorial: structured Editorial JSON (filled by editorial_writer_node)
+    - editorial_warnings: list of warning codes from deterministic checks (Plan 03-06)
 
     Pre-Phase-3 completed rows keep the old shape with per-solution keys.
     """
@@ -95,6 +96,8 @@ async def finalize_success(state: GraphState) -> dict:
     }
     if state.get("editorial"):
         result["editorial"] = state["editorial"].model_dump()
+    # D-16: editorial_warnings is always present (empty list if all checks pass)
+    result["editorial_warnings"] = state.get("editorial_warnings", [])
     return {"result": result}
 
 
@@ -215,8 +218,12 @@ def build_pipeline_graph(checkpointer: object) -> CompiledStateGraph:
         {"editorial_writer": "editorial_writer", "finalize_failed": "finalize_failed"},
     )
 
-    # Editorial writer always routes to finalize_success (Plan 03-06 will add retry logic)
-    builder.add_edge("editorial_writer", "finalize_success")
+    # Editorial writer routes via decide_after_writer (D-16: split on failure type)
+    builder.add_conditional_edges(
+        "editorial_writer",
+        decide_after_writer,
+        {"finalize_success": "finalize_success", "end": END},
+    )
 
     builder.add_edge("finalize_success", END)
     builder.add_edge("finalize_failed", END)
