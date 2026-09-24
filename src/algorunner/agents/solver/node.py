@@ -1,21 +1,20 @@
-"""Solver graph node.
+"""Solver graph node for per-approach branch execution (Phase 3).
 
-Elaborates `state["approaches"][0]` — the deterministically-selected first
-approach in the Strategist's returned list, no re-sorting/re-ranking — into
-an algorithm description + complexity reasoning.
+Elaborates the branch's own approach (`state["approach"]`) into an algorithm
+description + complexity reasoning. In Phase 3, each branch runs the Solver
+on its own approach; in Phase 2 this elaborated approaches[0] deterministically.
 
 `schemas/solution.py`'s `Solution` model requires non-empty
-`code_python`/`code_go`/`tests` (Plan 02-01's Field constraints), and this
+`code_python`/`code_go`/`tests` (Phase 2 Field constraints), and this
 node does not yet produce them, so `SolverOutput` is a separate, narrower,
-module-local schema for this plan's partial elaboration — not a durable
-inter-plan contract. Plan 02-04's Code Generator constructs the real
-`Solution` once code/tests exist, folding this dict in.
+module-local schema — not a durable inter-plan contract. The Code Generator
+constructs the real `Solution` once code/tests exist.
 """
 
 from pydantic import BaseModel, Field
 
 from algorunner.agents.solver.prompts import build_solver_messages
-from algorunner.graph.state import GraphState
+from algorunner.graph.state import ApproachState
 from algorunner.llm import client_factory
 from algorunner.llm.retry import call_structured
 
@@ -26,8 +25,13 @@ class SolverOutput(BaseModel):
     complexity_space: str = Field(..., min_length=1)
 
 
-async def solver_node(state: GraphState) -> dict:
-    approach = state["approaches"][0]
+async def solver_node(state: ApproachState) -> dict:
+    """Solve the branch's own approach.
+
+    Reads state["approach"] (the branch's dedicated approach) and elaborates
+    it into algorithm description and complexity reasoning.
+    """
+    approach = state["approach"]
     completion = await call_structured(
         client_factory.get_client(),
         model=client_factory.model_for("solver"),

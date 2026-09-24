@@ -20,7 +20,7 @@ import re
 from pydantic import BaseModel, Field
 
 from algorunner.agents.code_generator.prompts import build_code_messages
-from algorunner.graph.state import GraphState
+from algorunner.graph.state import ApproachState
 from algorunner.llm import client_factory
 from algorunner.llm.retry import call_structured
 from algorunner.schemas.solution import EntryPoint, Solution
@@ -49,7 +49,7 @@ def _validate_code(result: CodeGenOutput) -> None:
         raise ValueError("Code Generator: code_go must start with `package main`")
 
 
-async def code_generator_node(state: GraphState) -> dict:
+async def code_generator_node(state: ApproachState) -> dict:
     completion = await call_structured(
         client_factory.get_client(),
         model=client_factory.model_for("code_generator"),

@@ -11,13 +11,13 @@ Every call appends exactly one entry to `review_history` and increments
 """
 
 from algorunner.agents.reviewer.prompts import build_review_messages
-from algorunner.graph.state import GraphState
+from algorunner.graph.state import ApproachState
 from algorunner.llm import client_factory
 from algorunner.llm.retry import call_structured
 from algorunner.schemas.review import Issue, ReviewResult
 
 
-def _execution_failure_review(state: GraphState, py_ok: bool, go_ok: bool) -> ReviewResult:
+def _execution_failure_review(state: ApproachState, py_ok: bool, go_ok: bool) -> ReviewResult:
     py = state["python_execution"]
     go = state["go_execution"]
     py_err = (py.stderr if py else "")[:500]
@@ -43,7 +43,7 @@ def _execution_failure_review(state: GraphState, py_ok: bool, go_ok: bool) -> Re
     )
 
 
-async def reviewer_node(state: GraphState) -> dict:
+async def reviewer_node(state: ApproachState) -> dict:
     py = state["python_execution"]
     go = state["go_execution"]
     py_ok = py is not None and py.passed
