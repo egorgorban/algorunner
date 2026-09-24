@@ -20,6 +20,7 @@ merges left and right dicts instead, which is idempotent for a new
 import operator
 from typing import Annotated, TypedDict
 
+from algorunner.schemas.editorial import Editorial
 from algorunner.schemas.execution import ExecutionResult
 from algorunner.schemas.outcome import ApproachOutcome
 from algorunner.schemas.problem import ProblemAnalysis
@@ -59,6 +60,9 @@ class GraphState(TypedDict):
     max_iterations: int
     # The only reducer field: merge_outcomes is idempotent under re-invoke.
     approach_outcomes: Annotated[dict[int, ApproachOutcome], merge_outcomes]
+    # Plan 03-04: Editorial Writer fills this after the join when at least one
+    # approach is verified, with a Russian-prose Editorial.
+    editorial: Editorial | None
     result: dict | None
     error: dict | None
 

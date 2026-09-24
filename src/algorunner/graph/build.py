@@ -22,6 +22,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import interrupt
 
+from algorunner.agents.editorial_writer.node import editorial_writer_node
 from algorunner.agents.problem_analyzer.node import problem_analyzer_node
 from algorunner.agents.solution_strategist.node import solution_strategist_node
 from algorunner.graph.approach import decide_after_join, fan_out_approaches
@@ -53,10 +54,10 @@ async def collect_approaches(state: GraphState) -> dict:
 async def finalize_success(state: GraphState) -> dict:
     """Write the final result dict for a successfully completed run.
 
-    Result shape (D-13 approaches index):
-    - approaches: array of {approach_id, name, technique, status, iterations}
+    Result shape (D-13 approaches index, D-11 editorial):
+    - approaches: array of {approach_id, name, technique, role, status, iterations}
       in ascending approach_id order
-    - Later plans add editorial, editorial_warnings, artifact_keys, etc.
+    - editorial: structured Editorial JSON (filled by editorial_writer_node)
 
     Pre-Phase-3 completed rows keep the old shape with per-solution keys.
     """
@@ -66,16 +67,18 @@ async def finalize_success(state: GraphState) -> dict:
             "approach_id": idx,
             "name": outcome.approach.name,
             "technique": outcome.approach.technique,
+            "role": outcome.approach.role,
             "status": outcome.status,
             "iterations": outcome.iterations,
         }
         for idx, outcome in sorted(outcomes.items())
     ]
-    return {
-        "result": {
-            "approaches": approaches_index,
-        }
+    result = {
+        "approaches": approaches_index,
     }
+    if state.get("editorial"):
+        result["editorial"] = state["editorial"].model_dump()
+    return {"result": result}
 
 
 async def finalize_failed(state: GraphState) -> dict:
@@ -135,7 +138,8 @@ def build_pipeline_graph(checkpointer: object) -> CompiledStateGraph:
     - strategist: Approach selection (unchanged; will be updated in 03-03 for curation)
     - run_approach: Dispatch to per-approach subgraph (via Send from fan_out_approaches)
     - collect_approaches: Join point for all branches (zero logic)
-    - finalize_success: Write result.approaches on verified outcome
+    - editorial_writer: Compose verified approaches into Editorial (Phase 03-04)
+    - finalize_success: Write result with approaches and editorial on verified outcome
     - finalize_failed: Write error with precedence on zero-verified outcome
 
     Edges:
@@ -144,7 +148,8 @@ def build_pipeline_graph(checkpointer: object) -> CompiledStateGraph:
     - clarification_gate -> analyzer
     - strategist -> run_approach (via Send fan-out)
     - run_approach -> collect_approaches (plain edge)
-    - collect_approaches -> {finalize_success, finalize_failed} (decide_after_join)
+    - collect_approaches -> {editorial_writer, finalize_failed} (decide_after_join)
+    - editorial_writer -> finalize_success (plain edge)
     - finalize_success -> END
     - finalize_failed -> END
     """
@@ -158,6 +163,7 @@ def build_pipeline_graph(checkpointer: object) -> CompiledStateGraph:
 
     builder.add_node("run_approach", run_approach, input_schema=dict)
     builder.add_node("collect_approaches", collect_approaches)
+    builder.add_node("editorial_writer", editorial_writer_node)
     builder.add_node("finalize_success", finalize_success)
     builder.add_node("finalize_failed", finalize_failed)
 
@@ -179,12 +185,15 @@ def build_pipeline_graph(checkpointer: object) -> CompiledStateGraph:
     # Plain edge: all Send results are merged into approach_outcomes via the reducer
     builder.add_edge("run_approach", "collect_approaches")
 
-    # Fan-in router: decide success/failure
+    # Fan-in router: route to editorial_writer (if verified) or finalize_failed
     builder.add_conditional_edges(
         "collect_approaches",
         decide_after_join,
-        {"finalize_success": "finalize_success", "finalize_failed": "finalize_failed"},
+        {"editorial_writer": "editorial_writer", "finalize_failed": "finalize_failed"},
     )
+
+    # Editorial writer always routes to finalize_success (Plan 03-06 will add retry logic)
+    builder.add_edge("editorial_writer", "finalize_success")
 
     builder.add_edge("finalize_success", END)
     builder.add_edge("finalize_failed", END)

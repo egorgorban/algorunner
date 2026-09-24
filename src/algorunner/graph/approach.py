@@ -282,7 +282,7 @@ def fan_out_approaches(state: dict) -> list[Send]:
 def decide_after_join(state: dict) -> str:
     """Join router: decide success or failure after all branches complete.
 
-    Pure function, zero I/O. Returns "finalize_success" if any outcome in
+    Pure function, zero I/O. Returns "editorial_writer" if any outcome in
     approach_outcomes has status "verified", else "finalize_failed".
 
     This router lives in graph/approach.py (not graph/routing.py) because
@@ -290,9 +290,9 @@ def decide_after_join(state: dict) -> str:
     which is a module-level constant set at import time (like the per-node
     routers, but logically grouped with the orchestration).
 
-    Plan 03-04 will change the success label to "editorial_writer".
+    Plan 03-04: routes to "editorial_writer" on verified outcome.
     """
     outcomes = state.get("approach_outcomes", {})
     if any(outcome.status == "verified" for outcome in outcomes.values()):
-        return "finalize_success"
+        return "editorial_writer"
     return "finalize_failed"

@@ -12,6 +12,11 @@ from algorunner.agents.code_generator.node import CodeGenOutput
 from algorunner.agents.solver.node import SolverOutput
 from algorunner.agents.test_generator.node import GeneratedTests, TestCase
 from algorunner.api.main import app
+from algorunner.schemas.editorial import (
+    ApproachProse,
+    EditorialDraft,
+    UnverifiedMention,
+)
 from algorunner.schemas.problem import ProblemAnalysis
 from algorunner.schemas.review import ReviewResult
 from algorunner.schemas.solution import Approach, ApproachList, EntryParam, EntryPoint
@@ -79,21 +84,16 @@ def mock_openai_parse(monkeypatch):
 
 @pytest.fixture
 def mock_pipeline_openai(monkeypatch):
-    """Dispatcher-based mock for Phase 3 multi-approach pipeline (Pitfall 4).
-
-    Dispatches on `kwargs["response_format"].__name__` to support both
-    per-approach branches and shared analysis. The canned ApproachList has
-    TWO approaches: index 0 is "Brute force pairs" and index 1 is "Hash map lookup".
-
-    SolverOutput and CodeGenOutput vary by approach (detected from message content).
-    ProblemAnalysis, GeneratedTests, and ReviewResult are shared across approaches.
-
-    Exposes on the returned fake client:
-    - default_dispatch: the async dispatch function (for test wrappers)
-    - calls: list of response_format names in call order
-    - canned: dict from response_format name to the shared parsed object
-    - canned_code: dict from approach name to CodeGenOutput
-    """
+    """Monkeypatches `client_factory.get_client()` for a full
+    analyzer -> strategist -> solver -> code_generator -> test_generator
+    graph run (Plan 02-03, extended Plan 02-04). All five nodes call the
+    same `client_factory.get_client()`, so this fixture drives a single fake
+    client's `parse` mock with `side_effect` — one canned response per node,
+    in the order the graph actually calls them. Unlike `mock_openai_parse`
+    above (analyzer-only, one canned response reused for every call —
+    correct for single-node unit tests), a full pipeline invocation needs a
+    distinct response per node or a later call receives the wrong Pydantic
+    type and blows up with an AttributeError."""
     analysis = ProblemAnalysis(
         constraints=["1 <= n <= 10^4"],
         input_shape="list[int], int target",
@@ -103,73 +103,30 @@ def mock_pipeline_openai(monkeypatch):
         needs_clarification=False,
         clarification_question=None,
     )
-
-    approaches_list = ApproachList(
+    approaches = ApproachList(
         approaches=[
             Approach(
                 name="Brute force pairs",
                 technique="brute force",
-                summary="Check every pair of indices.",
+                summary="Check all pairs.",
                 role="brute_force",
-                rationale="Provides an instructive baseline approach.",
+                rationale="Simple but inefficient baseline.",
             ),
             Approach(
                 name="Hash map lookup",
                 technique="hash map",
                 summary="Track complements in a hash map for one pass.",
                 role="optimized",
-                rationale="Achieves O(n) time with a single pass.",
+                rationale="Reduces time complexity with a hash map.",
             ),
         ]
     )
-
-    # Brute force approach: nested loops
-    brute_force_solver = SolverOutput(
-        algorithm="Iterate with two nested loops over indices to find a pair summing to target.",
-        complexity_time="O(n^2), two nested loops over the array.",
-        complexity_space="O(1), only loop indices are stored.",
-    )
-    brute_force_code = CodeGenOutput(
-        entry_point=EntryPoint(
-            python_name="two_sum",
-            go_name="twoSum",
-            params=[
-                EntryParam(name="nums", type="list[int]"),
-                EntryParam(name="target", type="int"),
-            ],
-            return_type="list[int]",
-            unordered_result=True,
-        ),
-        code_python=(
-            "def two_sum(nums, target):\n"
-            "    for i in range(len(nums)):\n"
-            "        for j in range(i + 1, len(nums)):\n"
-            "            if nums[i] + nums[j] == target:\n"
-            "                return [i, j]\n"
-            "    return []\n"
-        ),
-        code_go=(
-            "package main\n\n"
-            "func twoSum(nums []int, target int) []int {\n"
-            "\tfor i := 0; i < len(nums); i++ {\n"
-            "\t\tfor j := i + 1; j < len(nums); j++ {\n"
-            "\t\t\tif nums[i]+nums[j] == target {\n"
-            "\t\t\t\treturn []int{i, j}\n"
-            "\t\t\t}\n"
-            "\t\t}\n"
-            "\t}\n"
-            "\treturn nil\n"
-            "}\n"
-        ),
-    )
-
-    # Hash map approach
-    hash_map_solver = SolverOutput(
+    solver_output = SolverOutput(
         algorithm="Iterate once, tracking complements of each value in a hash map.",
         complexity_time="O(n), one pass with O(1) average hash map lookups.",
         complexity_space="O(n), the hash map holds up to n entries.",
     )
-    hash_map_code = CodeGenOutput(
+    code_gen_output = CodeGenOutput(
         entry_point=EntryPoint(
             python_name="two_sum",
             go_name="twoSum",
@@ -203,8 +160,7 @@ def mock_pipeline_openai(monkeypatch):
             "}\n"
         ),
     )
-
-    # Ten labelled cases, shared across both approaches
+    # Ten labelled cases, each with exactly one solution.
     two_sum_cases = [
         ("classic example", [[2, 7, 11, 15], 9], [0, 1]),
         ("pair in the middle", [[3, 2, 4], 6], [1, 2]),
@@ -225,6 +181,8 @@ def mock_pipeline_openai(monkeypatch):
         normalized_examples=[],
     )
 
+    # Sixth and final call: the Reviewer (both executions pass for the
+    # canned correct Two Sum, so the LLM verdict is consulted and passes).
     passing_review = ReviewResult(
         passed=True,
         issues=[],
@@ -237,73 +195,76 @@ def mock_pipeline_openai(monkeypatch):
             choices=[SimpleNamespace(message=SimpleNamespace(parsed=parsed, refusal=None))]
         )
 
-    # Track calls for test inspection
-    calls_list = []
-
-    async def dispatch(**kwargs) -> SimpleNamespace:
-        """Dispatcher that returns different responses based on response_format name.
-
-        Tracks calls in calls_list[]. Detects approach from message content
-        for SolverOutput/CodeGenOutput.
-        """
-        response_format = kwargs.get("response_format")
-        format_name = response_format.__name__ if response_format else "unknown"
-        calls_list.append(format_name)
-
-        if format_name == "ProblemAnalysis":
-            return _completion(analysis)
-        elif format_name == "ApproachList":
-            return _completion(approaches_list)
-        elif format_name == "SolverOutput":
-            # Detect approach from message content
-            messages = kwargs.get("messages", [])
-            content = ""
-            for msg in messages:
-                if isinstance(msg, dict):
-                    content += msg.get("content", "")
-            if "Brute force pairs" in content:
-                return _completion(brute_force_solver)
-            else:
-                return _completion(hash_map_solver)
-        elif format_name == "CodeGenOutput":
-            # Detect approach from message content
-            messages = kwargs.get("messages", [])
-            content = ""
-            for msg in messages:
-                if isinstance(msg, dict):
-                    content += msg.get("content", "")
-            if "Brute force pairs" in content:
-                return _completion(brute_force_code)
-            else:
-                return _completion(hash_map_code)
-        elif format_name == "GeneratedTests":
-            return _completion(generated_tests)
-        elif format_name == "ReviewResult":
-            return _completion(passing_review)
-        else:
-            raise ValueError(f"Unexpected response_format: {format_name}")
-
     fake_client = SimpleNamespace(
         chat=SimpleNamespace(
             completions=SimpleNamespace(
-                parse=AsyncMock(side_effect=dispatch)
+                parse=AsyncMock(
+                    side_effect=[
+                        _completion(analysis),
+                        _completion(approaches),
+                        _completion(solver_output),
+                        _completion(code_gen_output),
+                        _completion(generated_tests),
+                        _completion(passing_review),
+                    ]
+                )
             )
         )
     )
-
-    # Expose for test access
-    fake_client.default_dispatch = dispatch
-    fake_client.calls = calls_list
-    fake_client.canned = {
-        "ProblemAnalysis": analysis,
-        "ApproachList": approaches_list,
-        "GeneratedTests": generated_tests,
-        "ReviewResult": passing_review,
-    }
-    fake_client.canned_code = {
-        "Brute force pairs": brute_force_code,
-        "Hash map lookup": hash_map_code,
-    }
-
     monkeypatch.setattr(client_factory_module, "get_client", lambda: fake_client)
+
+    # Store canned EditorialDraft for tests that need it
+    editorial_draft = EditorialDraft(
+        problem_restatement="Найти два числа в массиве, которые суммируются к целевому значению.",
+        approaches=[
+            ApproachProse(
+                approach_id=0,
+                title="Перебор всех пар",
+                bridge_from_previous=None,
+                intuition="Проверяем все возможные пары.",
+                algorithm="Двойной вложенный цикл по массиву.",
+                complexity_time="O(n^2)",
+                complexity_space="O(1)",
+                complexity_justification="Два вложенных цикла.",
+                notes=[],
+            ),
+            ApproachProse(
+                approach_id=1,
+                title="Хеш-таблица",
+                bridge_from_previous="Более эффективно использует дополнение.",
+                intuition="Отслеживаем дополнения в хеш-таблице.",
+                algorithm="Один проход с хеш-таблицей.",
+                complexity_time="O(n)",
+                complexity_space="O(n)",
+                complexity_justification="Один проход с O(1) хеш-операциями.",
+                notes=[],
+            ),
+        ],
+        edge_cases=["Пустой массив", "Массив длины 2"],
+        unverified=[],
+    )
+
+    def draft_for(ids: list[int]) -> SimpleNamespace:
+        """Create a completion with an EditorialDraft containing only the specified approach ids.
+
+        Used by tests where only some approaches are verified (isolation case).
+        """
+        filtered_approaches = [a for a in editorial_draft.approaches if a.approach_id in ids]
+        # Ensure first bridge is None, rest are set
+        if filtered_approaches:
+            filtered_approaches[0].bridge_from_previous = None
+            for approach in filtered_approaches[1:]:
+                if approach.bridge_from_previous is None:
+                    approach.bridge_from_previous = "Улучшенный подход."
+
+        draft = EditorialDraft(
+            problem_restatement=editorial_draft.problem_restatement,
+            approaches=filtered_approaches,
+            edge_cases=editorial_draft.edge_cases,
+            unverified=[],
+        )
+        return _completion(draft)
+
+    fake_client.editorial_draft = editorial_draft
+    fake_client.draft_for = draft_for
     return fake_client
