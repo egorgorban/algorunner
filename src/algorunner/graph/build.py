@@ -20,15 +20,32 @@ result.editorial.
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.runtime import Runtime
 from langgraph.types import interrupt
 
 from algorunner.agents.editorial_writer.node import editorial_writer_node
 from algorunner.agents.problem_analyzer.node import problem_analyzer_node
 from algorunner.agents.solution_strategist.node import solution_strategist_node
 from algorunner.graph.approach import decide_after_join, fan_out_approaches
+from algorunner.graph.context import PipelineContext, emit_status
 from algorunner.graph.routing import decide_after_analysis
 from algorunner.graph.state import GraphState
 from algorunner.schemas.execution import ExecutionResult
+from algorunner.schemas.task import TaskStatus
+
+
+async def record_analysis_node(state: GraphState, runtime: Runtime[PipelineContext]) -> dict:
+    """Emit DESIGNING_SOLUTION status after analysis completes (D-10, Pattern 11).
+
+    This zero-logic node marks the transition from problem analysis to solution
+    design. It provides a natural checkpoint for status tracking (designing_solution
+    status in Postgres) before branching to strategy and execution.
+
+    Plan 03-08 will add artifact persistence (writing analysis to Garage) to this node.
+    """
+    ctx = runtime.context
+    await emit_status(ctx, state["task_id"], TaskStatus.DESIGNING_SOLUTION)
+    return {}
 
 
 async def clarification_gate_node(state: GraphState) -> dict:
@@ -134,6 +151,7 @@ def build_pipeline_graph(checkpointer: object) -> CompiledStateGraph:
 
     Nodes:
     - analyzer: Problem analysis (unchanged from Phase 2)
+    - record_analysis: Emit DESIGNING_SOLUTION status (D-10, Pattern 11)
     - clarification_gate: Pause/resume (unchanged)
     - strategist: Approach selection (unchanged; will be updated in 03-03 for curation)
     - run_approach: Dispatch to per-approach subgraph (via Send from fan_out_approaches)
@@ -144,17 +162,21 @@ def build_pipeline_graph(checkpointer: object) -> CompiledStateGraph:
 
     Edges:
     - START -> analyzer
-    - analyzer -> {clarification_gate, strategist} (decide_after_analysis)
+    - analyzer -> {clarification_gate, record_analysis} (decide_after_analysis)
     - clarification_gate -> analyzer
+    - record_analysis -> strategist
     - strategist -> run_approach (via Send fan-out)
     - run_approach -> collect_approaches (plain edge)
     - collect_approaches -> {editorial_writer, finalize_failed} (decide_after_join)
     - editorial_writer -> finalize_success (plain edge)
     - finalize_success -> END
     - finalize_failed -> END
+
+    Has context_schema=PipelineContext to receive runtime context with deadline and status_sink.
     """
-    builder = StateGraph(GraphState)
+    builder = StateGraph(GraphState, context_schema=PipelineContext)
     builder.add_node("analyzer", problem_analyzer_node)
+    builder.add_node("record_analysis", record_analysis_node)
     builder.add_node("clarification_gate", clarification_gate_node)
     builder.add_node("strategist", solution_strategist_node)
 
@@ -171,9 +193,10 @@ def build_pipeline_graph(checkpointer: object) -> CompiledStateGraph:
     builder.add_conditional_edges(
         "analyzer",
         decide_after_analysis,
-        {"clarification_gate": "clarification_gate", "strategist": "strategist"},
+        {"clarification_gate": "clarification_gate", "record_analysis": "record_analysis"},
     )
     builder.add_edge("clarification_gate", "analyzer")
+    builder.add_edge("record_analysis", "strategist")
 
     # Fan-out: strategist -> one Send per approach to run_approach
     builder.add_conditional_edges(

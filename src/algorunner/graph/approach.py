@@ -15,39 +15,66 @@ The `decide_after_join` router lives here, not in graph/routing.py, because it
 depends on the ApproachStatus vocabulary defined in schemas/outcome.py (placed
 at module load, not per-node like the per-solution routers).
 
+Plan 03-05: adds deadline handling to run_approach, executor semaphore, and context_schema.
+
 Later plans extend this file:
 - Plan 03-03: adds Strategist reset logic (Pitfall 3) and curation (STRAT-02)
 - Plan 03-04: changes "finalize_success" to "editorial_writer" in decide_after_join
 - Plan 03-05: adds per-branch timeout to run_approach
 """
 
+import asyncio
 import logging
 import traceback
 from functools import lru_cache
 from typing import Any
 
 from langgraph.errors import GraphBubbleUp
-
-logger = logging.getLogger(__name__)
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send
+from langgraph.runtime import Runtime
 
 from algorunner.agents.code_generator.node import code_generator_node
 from algorunner.agents.reviewer.node import reviewer_node
 from algorunner.agents.solver.node import solver_node
 from algorunner.agents.test_generator.node import test_generator_node
+from algorunner.config import settings
+from algorunner.graph.context import PipelineContext, branch_budget_s, emit_status
 from algorunner.graph.harness import render_go_program, render_python_program
 from algorunner.graph.routing import decide_after_review
 from algorunner.graph.state import ApproachInput, ApproachState
 from algorunner.schemas.execution import ExecutionResult
 from algorunner.schemas.outcome import ApproachOutcome
+from algorunner.schemas.task import TaskStatus
 from algorunner.tools.go_executor.subprocess_backend import SubprocessGoExecutor
 from algorunner.tools.python_executor.subprocess_backend import SubprocessPythonExecutor
+
+logger = logging.getLogger(__name__)
 
 # Moved from build.py, unchanged except for type annotation (GraphState -> ApproachState)
 _GO_TIMEOUT_S = 30.0
 _PASS_MARKER = "ALGORUNNER PASS"
+
+# Executor semaphore for Pitfall 5: cap concurrent Python/Go subprocesses per
+# worker process. Keyed by concurrency limit to support monkeypatching in tests.
+_executor_semaphores: dict[int, asyncio.Semaphore] = {}
+
+
+def _executor_slot() -> asyncio.Semaphore:
+    """Get or create the executor semaphore for the current concurrency limit.
+
+    Returns the semaphore gated by settings.executor_max_concurrency.
+    Lazily creates a new semaphore the first time a given limit is used, so tests
+    can monkeypatch the setting and get a fresh semaphore.
+
+    Pitfall 5: This prevents executor starvation when multiple branches run in parallel.
+    The tools/process.py trust model (shared uid 65534) remains unchanged.
+    """
+    limit = settings.executor_max_concurrency
+    if limit not in _executor_semaphores:
+        _executor_semaphores[limit] = asyncio.Semaphore(limit)
+    return _executor_semaphores[limit]
 
 
 def _require_pass_marker(result: ExecutionResult) -> ExecutionResult:
@@ -65,19 +92,31 @@ def _require_pass_marker(result: ExecutionResult) -> ExecutionResult:
     return result
 
 
-async def execute_python_node(state: ApproachState) -> dict:
+async def execute_python_node(state: ApproachState, runtime: Runtime[PipelineContext]) -> dict:
+    """Execute Python code with executor concurrency bounded per worker process.
+
+    Pitfall 5: acquires _executor_slot before running to ensure no more than
+    settings.executor_max_concurrency Python/Go processes are in flight.
+    """
     solution = state["solution"]
     program = render_python_program(solution.code_python, solution.entry_point, solution.tests)
-    result = await SubprocessPythonExecutor().run(program.code, program.tests)
+    async with _executor_slot():
+        result = await SubprocessPythonExecutor().run(program.code, program.tests)
     return {"python_execution": _require_pass_marker(result)}
 
 
-async def execute_go_node(state: ApproachState) -> dict:
+async def execute_go_node(state: ApproachState, runtime: Runtime[PipelineContext]) -> dict:
+    """Execute Go code with executor concurrency bounded per worker process.
+
+    Pitfall 5: acquires _executor_slot before running to ensure no more than
+    settings.executor_max_concurrency Python/Go processes are in flight.
+    """
     solution = state["solution"]
     program = render_go_program(solution.code_go, solution.entry_point, solution.tests)
-    result = await SubprocessGoExecutor().run(
-        program.code, program.tests, timeout_s=_GO_TIMEOUT_S
-    )
+    async with _executor_slot():
+        result = await SubprocessGoExecutor().run(
+            program.code, program.tests, timeout_s=_GO_TIMEOUT_S
+        )
     return {"go_execution": _require_pass_marker(result)}
 
 
@@ -140,62 +179,78 @@ def outcome_from_final(inp: ApproachInput, final: dict) -> ApproachOutcome:
     )
 
 
-async def run_approach(state: ApproachInput) -> dict:
-    """Execute one per-approach branch.
+async def run_approach(state: ApproachInput, runtime: Runtime[PipelineContext]) -> dict:
+    """Execute one per-approach branch with deadline and executor concurrency control.
 
-    Invokes the approach subgraph with no explicit checkpoint coordinate or
-    thread_id, so checkpoints land in the parent's saver under the inherited
-    namespace (RESEARCH Pattern 2). The subgraph inherits the parent's checkpointer.
+    Emits GENERATING_CODE status (idempotent across branches).
+
+    Checks if the branch budget is already exhausted (deadline - now - reserve <= 0).
+    If so, returns a timed_out outcome without invoking the subgraph.
+
+    Otherwise, invokes the approach subgraph with asyncio.wait_for at the branch
+    budget timeout. On TimeoutError, returns a timed_out outcome (D-10).
+
+    On GraphBubbleUp, re-raises (RESEARCH Pattern 2). On other exceptions,
+    returns an errored outcome. A GraphRecursionError inside the branch becomes
+    an errored outcome (not a graph failure).
 
     Returns the outcome wrapped in approach_outcomes[approach_idx].
-    On exception, catches everything except GraphBubbleUp (which must propagate),
-    and BaseException (CancelledError must propagate for worker timeout).
+
+    Pitfall 9: safe to call without context (no deadline → unbounded budget).
     """
-<<<<<<< HEAD
     approach_idx = state["approach_idx"]
-    approach_name = state["approach"].name
-    logger.info(f"run_approach: Starting branch for approach {approach_idx} ({approach_name})")
-    logger.debug(f"run_approach: Input state keys: {list(state.keys())}")
+    ctx = runtime.context
 
     try:
+        # Emit GENERATING_CODE status (idempotent across branches)
+        await emit_status(ctx, state["task_id"], TaskStatus.GENERATING_CODE)
+
+        # Check if the branch deadline is already in the past
+        budget = branch_budget_s(ctx)
+        if budget is not None and budget <= 0:
+            return {
+                "approach_outcomes": {
+                    approach_idx: ApproachOutcome.not_verified(
+                        approach_idx=approach_idx,
+                        approach=state["approach"],
+                        status="timed_out",
+                        error="branch deadline reached before start",
+                    )
+                }
+            }
+
+        # Invoke the subgraph bounded by branch_budget_s timeout (or unbounded if None)
         graph = get_approach_graph()
         branch_state = initial_branch_state(state)
-        logger.debug(f"run_approach: Initial branch state keys: {list(branch_state.keys())}")
-        logger.debug(f"run_approach: review={branch_state.get('review')}, iterations={branch_state.get('iterations')}")
 
-        final = await graph.ainvoke(branch_state)
-        logger.info(f"run_approach: Branch {approach_idx} completed successfully")
+        if budget is not None:
+            final = await asyncio.wait_for(
+                graph.ainvoke(branch_state),
+                timeout=budget,
+            )
+        else:
+            final = await graph.ainvoke(branch_state)
+
         outcome = outcome_from_final(state, final)
+
     except GraphBubbleUp:
-        logger.error(f"run_approach: GraphBubbleUp in branch {approach_idx}")
         raise
-    except Exception as exc:
-        logger.error(f"run_approach: Exception in branch {approach_idx}: {type(exc).__name__}: {exc}")
-        logger.error(f"run_approach: Full traceback:\n{traceback.format_exc()}")
+    except asyncio.TimeoutError:
         outcome = ApproachOutcome.not_verified(
             approach_idx=approach_idx,
-=======
-    try:
-        graph = get_approach_graph()
-        branch_state = initial_branch_state(state)
-        final = await graph.ainvoke(branch_state)
-        outcome = outcome_from_final(state, final)
-    except GraphBubbleUp:
-        raise
+            approach=state["approach"],
+            status="timed_out",
+            error="branch deadline reached",
+        )
     except Exception as exc:
         outcome = ApproachOutcome.not_verified(
-            approach_idx=state["approach_idx"],
->>>>>>> worktree-agent-ae4af66b6386ae4a2
+            approach_idx=approach_idx,
             approach=state["approach"],
             status="errored",
             error=f"{type(exc).__name__}: {exc}",
         )
 
-<<<<<<< HEAD
     return {"approach_outcomes": {approach_idx: outcome}}
-=======
-    return {"approach_outcomes": {state["approach_idx"]: outcome}}
->>>>>>> worktree-agent-ae4af66b6386ae4a2
 
 
 def build_approach_graph(checkpointer: object | None = None) -> CompiledStateGraph:
@@ -207,8 +262,10 @@ def build_approach_graph(checkpointer: object | None = None) -> CompiledStateGra
 
     Compiled WITHOUT a checkpointer argument — the subgraph inherits the parent's
     checkpointer via the checkpointer passed to build_pipeline_graph.
+
+    Has context_schema=PipelineContext to receive runtime context from parent.
     """
-    builder = StateGraph(ApproachState)
+    builder = StateGraph(ApproachState, context_schema=PipelineContext)
     builder.add_node("solver", solver_node)
     builder.add_node("code_generator", code_generator_node)
     builder.add_node("test_generator", test_generator_node)

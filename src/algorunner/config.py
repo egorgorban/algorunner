@@ -38,12 +38,29 @@ class Settings(BaseSettings):
     code_generator_model: str | None = None
     test_generator_model: str | None = None
     reviewer_model: str | None = None
+    editorial_writer_model: str | None = None
 
     max_iterations: int = 5
     max_approaches: int = Field(default=3, ge=1)  # D-01: cap on curated approaches
     clarification_round_cap: int = 2
     test_generator_min_tests: int = 10
-    global_timeout_s: int = 600
+    # D-07: global 20-minute solve budget. When active_execution_seconds reaches
+    # this, further invocations are failed with GLOBAL_TIMEOUT rather than run.
+    global_timeout_s: int = 1200
+
+    # D-10: Writer reserve time, deducted from each branch's remaining budget.
+    # A branch whose remaining budget minus this reserve is <= 0 times out
+    # without invoking the subgraph.
+    editorial_reserve_s: float = 240.0
+
+    # ORCH-03: per-attempt timeout for the Editorial Writer's LLM call.
+    # Plan 03-06 adds retry logic; each attempt gets this budget independently.
+    editorial_attempt_timeout_s: float = 100.0
+
+    # Pitfall 5: max concurrent executor runs (Python or Go) across all branches
+    # of a worker process. Prevents starving CPU when multiple branches run in
+    # parallel (relevant for Go build concurrency). Must be >= 1.
+    executor_max_concurrency: int = Field(default=4, ge=1)
 
     retry_max_attempts: int = 5
     retry_wait_min_s: float = 2.0
