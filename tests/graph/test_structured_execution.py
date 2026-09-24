@@ -15,6 +15,7 @@ import algorunner.agents.test_generator.node as test_generator_node_module
 import algorunner.llm.client_factory as client_factory_module
 from algorunner.agents.code_generator.node import CodeGenOutput, code_generator_node
 from algorunner.graph.approach import execute_go_node, execute_python_node
+from algorunner.graph.context import PipelineContext
 from algorunner.schemas.problem import ProblemAnalysis
 from algorunner.schemas.solution import Approach, EntryParam, EntryPoint
 
@@ -70,13 +71,20 @@ def _state(problem_text, examples, analysis) -> dict:
 
 
 async def _run_segment(state: dict) -> dict:
+    # Create a mock Runtime for testing (nodes don't need context for this segment test)
+    mock_runtime = SimpleNamespace(context=None)
+
     for node in (
         code_generator_node,
         test_generator_node_module.test_generator_node,
         execute_python_node,
         execute_go_node,
     ):
-        state = {**state, **(await node(state))}
+        # execute_python_node and execute_go_node need runtime, others don't
+        if node in (execute_python_node, execute_go_node):
+            state = {**state, **(await node(state, mock_runtime))}
+        else:
+            state = {**state, **(await node(state))}
     return state
 
 
