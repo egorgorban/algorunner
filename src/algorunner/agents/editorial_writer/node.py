@@ -25,19 +25,22 @@ from algorunner.schemas.task import TaskStatus
 logger = logging.getLogger(__name__)
 
 
-def soft_warnings(draft: EditorialDraft, analysis) -> list[str]:
+def soft_warnings(draft: EditorialDraft, verified: list = None) -> list[str]:
     """Check for soft (non-structural) failures and return warning codes.
 
     In Plan 03-06, returns ["language_check_failed"] when the draft fails the
-    Russian-language check. Plan 03-07 extends this with completeness checks.
+    Russian-language check. Plan 03-07 extends this with completeness checks
+    for edge cases and notes.
 
     Args:
         draft: The EditorialDraft from the LLM
-        analysis: The ProblemAnalysis (unused in 03-06, here for extension)
+        verified: List of verified ApproachOutcome objects (for edge cases/notes checks)
 
     Returns:
         List of warning codes (empty if all soft checks pass)
     """
+    warnings = []
+
     # Language check: if the prose fails Russian-language thresholds, return warning
     fields = prose_fields(draft)
     if not check_russian(
@@ -45,8 +48,39 @@ def soft_warnings(draft: EditorialDraft, analysis) -> list[str]:
         aggregate_min=settings.editorial_cyrillic_min_ratio,
         field_min=settings.editorial_cyrillic_field_min_ratio,
     ):
-        return ["language_check_failed"]
-    return []
+        warnings.append("language_check_failed")
+
+    # EDIT-05: Check for edge cases completeness
+    # If any verified approach has handled_edge_cases and draft.edge_cases is empty, warn
+    if verified:
+        has_handled_edge_cases = any(
+            outcome.final_review and outcome.final_review.handled_edge_cases
+            for outcome in verified
+        )
+        if has_handled_edge_cases and not draft.edge_cases:
+            warnings.append("edge_cases_missing")
+
+        # Check for notes completeness
+        # If any verified approach has a minor issue but draft notes are empty for that approach, warn
+        for outcome in verified:
+            if outcome.final_review and outcome.final_review.issues:
+                has_minor_issue = any(
+                    issue.severity == "minor"
+                    for issue in outcome.final_review.issues
+                )
+                if has_minor_issue:
+                    # Find the draft approach with this approach_id
+                    draft_approach = None
+                    for draft_app in draft.approaches:
+                        if draft_app.approach_id == outcome.approach_idx:
+                            draft_approach = draft_app
+                            break
+
+                    if draft_approach and not draft_approach.notes:
+                        warnings.append("notes_missing")
+                        break  # Only warn once for notes_missing
+
+    return warnings
 
 
 async def editorial_writer_node(state: dict, runtime: Runtime[PipelineContext]) -> dict:
@@ -144,7 +178,7 @@ async def editorial_writer_node(state: dict, runtime: Runtime[PipelineContext]) 
         assembly_error1 = str(e)
 
     # Check soft failures on attempt 1
-    warnings1 = soft_warnings(draft1, state["analysis"]) if editorial1 else []
+    warnings1 = soft_warnings(draft1, verified) if editorial1 else []
 
     # If attempt 1 has no failures, return it
     if editorial1 is not None and not warnings1:
@@ -179,7 +213,7 @@ async def editorial_writer_node(state: dict, runtime: Runtime[PipelineContext]) 
         assembly_error2 = str(e)
 
     # Check soft failures on attempt 2
-    warnings2 = soft_warnings(draft2, state["analysis"]) if editorial2 else []
+    warnings2 = soft_warnings(draft2, verified) if editorial2 else []
 
     # Decision logic per user-confirmed split:
     # 1. If attempt 2 assembled and has no hard failures: return it with warnings

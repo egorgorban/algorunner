@@ -55,6 +55,7 @@ async def clarification_gate_node(state: GraphState) -> dict:
     return {
         "clarification_answer": answer,
         "clarification_rounds": state["clarification_rounds"] + 1,
+        "clarifications": state["clarifications"] + [{"question": state["analysis"].clarification_question, "answer": answer}],
     }
 
 

@@ -19,6 +19,9 @@ executed in Python and Go and passed all of its tests. Review it for:
 not merely for the tests?
 - edge-case coverage: cross-reference the listed tests against the \
 problem's constraints; note missing edge cases that could hide a bug.
+- handled_edge_cases: list each edge case (short description) that you \
+confirmed the solution handles, cross-referenced with the listed tests. \
+Return an empty list if none are identified.
 - complexity: the solution claims complexity_time and complexity_space. In \
 `complexity_reasoning` you MUST justify the complexity by referencing the \
 algorithm's structure (loops, recursion, data structures). Do not just \

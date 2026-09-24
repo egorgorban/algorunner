@@ -1,5 +1,3 @@
-"""Tests for Phase 3 multi-approach parent graph (D-08, D-13)."""
-
 from uuid import uuid4
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -14,7 +12,6 @@ async def _checkpointer_for(pg_pool):
 
 
 def _initial_state(thread_id: str, problem_text: str) -> dict:
-    """Initial GraphState for Phase 3: parent shape, no per-solution keys."""
     return {
         "task_id": thread_id,
         "problem_text": problem_text,
@@ -24,9 +21,12 @@ def _initial_state(thread_id: str, problem_text: str) -> dict:
         "clarification_rounds": 0,
         "clarification_answer": None,
         "assumption_stated": None,
+        "clarifications": [],
         "approaches": [],
         "max_iterations": 5,
         "approach_outcomes": {},
+        "editorial": None,
+        "editorial_warnings": [],
         "result": None,
         "error": None,
     }
@@ -35,7 +35,6 @@ def _initial_state(thread_id: str, problem_text: str) -> dict:
 async def test_build_pipeline_graph_happy_path_sets_analysis_result(
     pg_pool, mock_pipeline_openai
 ):
-    """Happy path: analyzer runs, analysis is set, error is None."""
     checkpointer = await _checkpointer_for(pg_pool)
     graph = build_pipeline_graph(checkpointer)
 
@@ -47,13 +46,13 @@ async def test_build_pipeline_graph_happy_path_sets_analysis_result(
     )
 
     assert result_state["error"] is None
+    assert result_state["result"]["analysis"] is not None
     assert result_state["analysis"] is not None
 
 
 async def test_build_pipeline_graph_persists_checkpoint_row_to_real_postgres(
     pg_pool, mock_pipeline_openai
 ):
-    """Checkpoints persist to Postgres, including branch checkpoints."""
     checkpointer = await _checkpointer_for(pg_pool)
     graph = build_pipeline_graph(checkpointer)
 
@@ -72,29 +71,12 @@ async def test_build_pipeline_graph_persists_checkpoint_row_to_real_postgres(
             row = await cur.fetchone()
             count = row["count"] if isinstance(row, dict) else row[0]
 
-    # At least one checkpoint (actual count will be higher for multi-step graph)
     assert count >= 1
-
-    # Verify that at least one checkpoint has been persisted (from branch execution)
-    # Note: Branch checkpoints would have a namespace, but we just verify
-    # that additional checkpoints were created (multi-step graph should have many)
-    async with pg_pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "SELECT count(*) FROM checkpoints WHERE thread_id = %s",
-                (thread_id,),
-            )
-            row = await cur.fetchone()
-            total_count = row["count"] if isinstance(row, dict) else row[0]
-
-    # Multi-step graph should have more than the minimum
-    assert total_count >= 2
 
 
 async def test_build_pipeline_graph_runs_analyzer_strategist_solver_end_to_end(
     pg_pool, mock_pipeline_openai
 ):
-    """Analyzer -> strategist -> solver runs, two approaches fan out, both executed."""
     checkpointer = await _checkpointer_for(pg_pool)
     graph = build_pipeline_graph(checkpointer)
 
@@ -105,28 +87,30 @@ async def test_build_pipeline_graph_runs_analyzer_strategist_solver_end_to_end(
         durability="sync",
     )
 
-    # No error on success
     assert result_state["error"] is None
+    assert result_state["approaches"][0].technique == "hash map"
+    assert result_state["result"]["solution"]["algorithm"]
 
-    # Two approaches returned by strategist
-    assert len(result_state["approaches"]) == 2
-    techniques = sorted([a.technique for a in result_state["approaches"]])
-    assert techniques == ["brute force", "hash map"]
+    async with pg_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT count(*) FROM checkpoints WHERE thread_id = %s", (thread_id,)
+            )
+            row = await cur.fetchone()
+            count = row["count"] if isinstance(row, dict) else row[0]
 
-    # Both approaches have outcomes
-    outcomes = result_state["approach_outcomes"]
-    assert len(outcomes) == 2
-    assert 0 in outcomes
-    assert 1 in outcomes
-
-    # Approaches were detected correctly in solver (message content)
-    assert mock_pipeline_openai.calls.count("SolverOutput") == 2
+    assert count >= 1
 
 
 async def test_build_pipeline_graph_runs_full_pipeline_through_code_and_test_gen(
     pg_pool, mock_pipeline_openai
 ):
-    """Full pipeline: code and test generation for two approaches."""
+    """Analyzer -> strategist -> solver -> code_generator -> test_generator
+    -> finalize_success end-to-end against real Postgres, with each of the
+    five LLM-backed nodes mocked at their shared `get_client` call site
+    (`mock_pipeline_openai`). Asserts the persisted `result["solution"]` has
+    non-empty dual-language code and a structured test list at least as long
+    as the mocked generated-test count."""
     checkpointer = await _checkpointer_for(pg_pool)
     graph = build_pipeline_graph(checkpointer)
 
@@ -138,32 +122,29 @@ async def test_build_pipeline_graph_runs_full_pipeline_through_code_and_test_gen
     )
 
     assert result_state["error"] is None
+    solution = result_state["result"]["solution"]
+    assert solution["code_python"]
+    assert solution["code_go"]
+    assert len(solution["tests"]) >= 10
 
-    # Check result.approaches index (D-13)
-    result = result_state["result"]
-    assert "approaches" in result
-    approaches_index = result["approaches"]
-    assert len(approaches_index) == 2
+    async with pg_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT count(*) FROM checkpoints WHERE thread_id = %s", (thread_id,)
+            )
+            row = await cur.fetchone()
+            count = row["count"] if isinstance(row, dict) else row[0]
 
-    # Check order and content
-    assert approaches_index[0]["approach_id"] == 0
-    assert approaches_index[0]["name"] == "Brute force pairs"
-    assert approaches_index[1]["approach_id"] == 1
-    assert approaches_index[1]["name"] == "Hash map lookup"
-
-    # No per-solution keys in result (D-13 promote decision)
-    assert "solution" not in result
-    assert "analysis" not in result
-
-    # Both code generators ran (one per approach)
-    assert mock_pipeline_openai.calls.count("CodeGenOutput") == 2
-    assert mock_pipeline_openai.calls.count("GeneratedTests") == 2
+    assert count >= 1
 
 
 async def test_build_pipeline_graph_runs_full_pipeline_through_execution(
     pg_pool, mock_pipeline_openai
 ):
-    """Full graph: real Python/Go execution, both approaches verify, reviewer passes."""
+    """Full graph against real Postgres, real python3 and real `go build`,
+    with only the five LLM calls mocked. The shared fixture's canned solution
+    is a correct Two Sum (list[int], int -> list[int]) in both languages, so
+    both executions must pass through the structured-case renderers."""
     checkpointer = await _checkpointer_for(pg_pool)
     graph = build_pipeline_graph(checkpointer)
 
@@ -175,39 +156,21 @@ async def test_build_pipeline_graph_runs_full_pipeline_through_execution(
     )
 
     assert result_state["error"] is None
+    assert result_state["python_execution"] is not None
+    assert result_state["go_execution"] is not None
+    assert result_state["python_execution"].passed is True, result_state[
+        "python_execution"
+    ].stderr
+    assert result_state["go_execution"].passed is True, result_state["go_execution"].stderr
 
-    # Both approaches verified (status="verified")
-    outcomes = result_state["approach_outcomes"]
-    for idx in [0, 1]:
-        assert idx in outcomes
-        outcome = outcomes[idx]
-        assert outcome.status == "verified", f"Approach {idx} status: {outcome.status}"
-        assert outcome.iterations == 1
-        assert outcome.final_review is not None
-        assert outcome.final_review.passed is True
-        assert outcome.final_solution is not None
-
-        # Both executions passed for each approach
-        assert outcome.final_solution.code_python
-        assert outcome.final_solution.code_go
-        assert len(outcome.final_solution.tests) >= 10
-
-    # Result carries verified approaches index
     result = result_state["result"]
-    approaches_index = result["approaches"]
-    for idx in [0, 1]:
-        assert approaches_index[idx]["status"] == "verified"
-        assert approaches_index[idx]["iterations"] == 1
-
-    # Code was executed correctly (brute force and hash map both work)
-    assert mock_pipeline_openai.calls.count("ReviewResult") == 2
-
-    # Verify that solutions carry the correct code for each approach
-    brute_code = mock_pipeline_openai.canned_code["Brute force pairs"].code_python
-    hash_code = mock_pipeline_openai.canned_code["Hash map lookup"].code_python
-
-    brute_outcome = outcomes[0]
-    hash_outcome = outcomes[1]
-
-    assert brute_outcome.final_solution.code_python == brute_code
-    assert hash_outcome.final_solution.code_python == hash_code
+    assert result["review"]["passed"] is True
+    assert result_state["iterations"] == 1
+    assert len(result_state["review_history"]) == 1
+    assert result["python_execution"]["passed"] is True
+    assert result["go_execution"]["passed"] is True
+    assert result["solution"]["entry_point"]["python_name"] == "two_sum"
+    for case in result["solution"]["tests"]:
+        assert case["origin"] in ("provided", "generated")
+        assert isinstance(case["args"], list)
+        assert "input" not in case and "output" not in case

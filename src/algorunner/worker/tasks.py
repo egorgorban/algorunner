@@ -186,6 +186,7 @@ async def solve_problem(task_id: str) -> None:
             "clarification_rounds": 0,
             "clarification_answer": None,
             "assumption_stated": None,
+            "clarifications": [],
             "approaches": [],
             "max_iterations": settings.max_iterations,
             "approach_outcomes": {},

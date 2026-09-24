@@ -188,6 +188,7 @@ def mock_pipeline_openai(monkeypatch):
         issues=[],
         required_changes=[],
         complexity_reasoning="One loop over n items with O(1) dict operations gives O(n) time.",
+        handled_edge_cases=["duplicate values", "negative numbers"],
     )
 
     def _completion(parsed):

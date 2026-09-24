@@ -40,6 +40,7 @@ def _execution_failure_review(state: ApproachState, py_ok: bool, go_ok: bool) ->
         complexity_reasoning=(
             "Not assessed - execution failed before a complexity review could be performed"
         ),
+        handled_edge_cases=[],
     )
 
 

@@ -56,6 +56,7 @@ class GraphState(TypedDict):
     clarification_rounds: int
     clarification_answer: str | None
     assumption_stated: str | None
+    clarifications: list[dict]
     approaches: list[Approach]
     max_iterations: int
     # The only reducer field: merge_outcomes is idempotent under re-invoke.

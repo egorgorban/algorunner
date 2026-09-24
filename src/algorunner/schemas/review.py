@@ -31,3 +31,4 @@ class ReviewResult(BaseModel):
     issues: list[Issue]
     required_changes: list[str]
     complexity_reasoning: str = Field(..., min_length=1)
+    handled_edge_cases: list[str] = Field(default_factory=list)
