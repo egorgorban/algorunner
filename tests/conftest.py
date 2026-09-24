@@ -12,6 +12,11 @@ from algorunner.agents.code_generator.node import CodeGenOutput
 from algorunner.agents.solver.node import SolverOutput
 from algorunner.agents.test_generator.node import GeneratedTests, TestCase
 from algorunner.api.main import app
+from algorunner.schemas.editorial import (
+    ApproachProse,
+    EditorialDraft,
+    UnverifiedMention,
+)
 from algorunner.schemas.problem import ProblemAnalysis
 from algorunner.schemas.review import ReviewResult
 from algorunner.schemas.solution import Approach, ApproachList, EntryParam, EntryPoint
@@ -101,10 +106,19 @@ def mock_pipeline_openai(monkeypatch):
     approaches = ApproachList(
         approaches=[
             Approach(
+                name="Brute force pairs",
+                technique="brute force",
+                summary="Check all pairs.",
+                role="brute_force",
+                rationale="Simple but inefficient baseline.",
+            ),
+            Approach(
                 name="Hash map lookup",
                 technique="hash map",
                 summary="Track complements in a hash map for one pass.",
-            )
+                role="optimized",
+                rationale="Reduces time complexity with a hash map.",
+            ),
         ]
     )
     solver_output = SolverOutput(
@@ -198,4 +212,59 @@ def mock_pipeline_openai(monkeypatch):
         )
     )
     monkeypatch.setattr(client_factory_module, "get_client", lambda: fake_client)
+
+    # Store canned EditorialDraft for tests that need it
+    editorial_draft = EditorialDraft(
+        problem_restatement="Найти два числа в массиве, которые суммируются к целевому значению.",
+        approaches=[
+            ApproachProse(
+                approach_id=0,
+                title="Перебор всех пар",
+                bridge_from_previous=None,
+                intuition="Проверяем все возможные пары.",
+                algorithm="Двойной вложенный цикл по массиву.",
+                complexity_time="O(n^2)",
+                complexity_space="O(1)",
+                complexity_justification="Два вложенных цикла.",
+                notes=[],
+            ),
+            ApproachProse(
+                approach_id=1,
+                title="Хеш-таблица",
+                bridge_from_previous="Более эффективно использует дополнение.",
+                intuition="Отслеживаем дополнения в хеш-таблице.",
+                algorithm="Один проход с хеш-таблицей.",
+                complexity_time="O(n)",
+                complexity_space="O(n)",
+                complexity_justification="Один проход с O(1) хеш-операциями.",
+                notes=[],
+            ),
+        ],
+        edge_cases=["Пустой массив", "Массив длины 2"],
+        unverified=[],
+    )
+
+    def draft_for(ids: list[int]) -> SimpleNamespace:
+        """Create a completion with an EditorialDraft containing only the specified approach ids.
+
+        Used by tests where only some approaches are verified (isolation case).
+        """
+        filtered_approaches = [a for a in editorial_draft.approaches if a.approach_id in ids]
+        # Ensure first bridge is None, rest are set
+        if filtered_approaches:
+            filtered_approaches[0].bridge_from_previous = None
+            for approach in filtered_approaches[1:]:
+                if approach.bridge_from_previous is None:
+                    approach.bridge_from_previous = "Улучшенный подход."
+
+        draft = EditorialDraft(
+            problem_restatement=editorial_draft.problem_restatement,
+            approaches=filtered_approaches,
+            edge_cases=editorial_draft.edge_cases,
+            unverified=[],
+        )
+        return _completion(draft)
+
+    fake_client.editorial_draft = editorial_draft
+    fake_client.draft_for = draft_for
     return fake_client
