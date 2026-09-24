@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-22 after Phase 1)
 Phase: 02 (Verified Single-Solution Core Pipeline) — EXECUTING
 Plan: 1 of 8
 Status: Executing Phase 02
-Last activity: 2026-09-24 - Completed quick task 260924-3vy: Fix stale clarification_question
+Last activity: 2026-09-24 - Completed quick task 260924-53g: Fix privilege drop under uvloop
 
 Progress: [███░░░░░░░] 25%
 
@@ -97,6 +97,7 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 260923-q5h | Add nullable explanation field to the problem Example schema (src/algorunner/schemas/problem.py, Phase 2 Wave 1 work already merged to main), matching LeetCode's example format where each example has input, output, and an optional explanation string. | 2026-09-23 | b723e4c | [260923-q5h-add-nullable-explanation-field-to-the-pr](./quick/260923-q5h-add-nullable-explanation-field-to-the-pr/) |
 | 260924-3vy | Fix stale clarification_question: clear it atomically in attempt_consume_clarification so GET /tasks/{id} stops exposing an answered/closed task's old question (Phase 2 UAT finding) | 2026-09-24 | 5d316ca | [260924-3vy-fix-stale-clarification-question-clear-i](./quick/260924-3vy-fix-stale-clarification-question-clear-i/) |
+| 260924-53g | Fix privilege drop under uvloop: apply setgroups/setgid/setuid in preexec_fn instead of user/group/extra_groups spawn kwargs (02-10 regression: every task failed with 'unexpected kwargs'), add uvloop regression tests and uvloop Docker probe | 2026-09-24 | 75ad6cb | [260924-53g-fix-privilege-drop-under-uvloop-apply-se](./quick/260924-53g-fix-privilege-drop-under-uvloop-apply-se/) |
 
 ## Deferred Items
 
