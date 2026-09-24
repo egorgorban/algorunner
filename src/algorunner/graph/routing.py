@@ -3,6 +3,9 @@ REV-04, REV-05).
 
 Pure Python: zero LLM calls, zero I/O. The category -> node table is costly to
 reverse (it is baked into the graph's conditional-edge structure).
+
+Works with both GraphState (parent) and ApproachState (branch) — both have
+the same review, iterations, and max_iterations fields.
 """
 
 from algorunner.graph.state import GraphState
@@ -21,20 +24,25 @@ _TARGET_PRIORITY = ["solver", "code_generator"]
 
 
 def decide_after_analysis(state: GraphState) -> str:
-    analysis = state["analysis"]
+    """Route after analysis: clarification_gate if clarification needed, else record_analysis.
+
+    Plan 03-05: changed destination from "strategist" to "record_analysis" to emit
+    DESIGNING_SOLUTION status (Pattern 11, D-10).
+    """
+    analysis = state.get("analysis")
     if analysis is not None and analysis.needs_clarification:
         return "clarification_gate"
-    return "strategist"
+    return "record_analysis"
 
 
 def decide_after_review(state: GraphState) -> str:
-    review = state["review"]
+    review = state.get("review")
     if review is None:
         # No structured verdict is never treated as success.
         return "finalize_failed"
     if review.passed:
         return "finalize_success"
-    if state["iterations"] >= state.get("max_iterations", 5):
+    if state.get("iterations", 0) >= state.get("max_iterations", 5):
         return "finalize_failed"
     critical = [i for i in review.issues if i.severity == "critical"]
     targets = {_CATEGORY_TO_NODE.get(i.category, "solver") for i in critical}

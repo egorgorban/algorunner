@@ -31,11 +31,24 @@ class Settings(BaseSettings):
     code_generator_model: str | None = None
     test_generator_model: str | None = None
     reviewer_model: str | None = None
+    editorial_writer_model: str | None = None
 
     max_iterations: int = 5
+    max_approaches: int = 3
     clarification_round_cap: int = 2
     test_generator_min_tests: int = 10
-    global_timeout_s: int = 600
+    # D-07: global 20-minute solve budget
+    global_timeout_s: int = 1200
+    # D-10: Writer reserve time, deducted from branch remaining budget
+    editorial_reserve_s: float = 240.0
+    # ORCH-03: per-attempt timeout for Editorial Writer's LLM call
+    editorial_attempt_timeout_s: float = 100.0
+    # RESEARCH A1: Cyrillic-ratio thresholds for Russian language check (D-16)
+    editorial_cyrillic_min_ratio: float = 0.6
+    editorial_cyrillic_field_min_ratio: float = 0.3
+
+    # Pitfall 5: max concurrent executor runs across all branches
+    executor_max_concurrency: int = 4
 
     retry_max_attempts: int = 5
     retry_wait_min_s: float = 2.0
