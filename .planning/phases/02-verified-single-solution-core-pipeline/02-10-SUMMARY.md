@@ -29,7 +29,7 @@ key-decisions:
   - "Single hard SIGKILL of the process group in a finally; no graceful phase"
   - "Network egress and lateral postgres/redis access explicitly left open (SEC-02/SEC-03), documented in process.py"
 requirements-completed: [EXEC-01, EXEC-02, INFRA-04]
-status: partial
+status: complete
 commits: 5
 plan_head_before: 4d04d094d1f6570d836fc4f9f8af2536d826b2cf
 duration: ~40 min
@@ -44,7 +44,7 @@ actuals:
 
 Shared `tools/process.py` kills the whole child process group on every exit path (including the real GLOBAL_TIMEOUT cancellation), and generated code is dropped to uid 65534 in the root worker so it can no longer read the API key via /proc.
 
-Status is `partial`: Tasks 1-3 are done and committed; Task 4 (human Docker acceptance) is awaiting the user.
+Status is `complete`: Tasks 1-3 done and committed; Task 4 (human Docker acceptance) was signed off by the user after a follow-up fix (quick task 260924-53g: privilege drop moved into `preexec_fn`, because uvloop's `subprocess_exec` rejects `user`/`group`/`extra_groups`). User confirmed the isolation probe prints `ALL CHECKS PASSED` (incl. `probe-runs-under-uvloop`) and the live Two Sum regression completed with no permission errors.
 
 ## What was done
 
@@ -77,7 +77,7 @@ None.
 
 None beyond the plan's register (T-02-10-05 network/lateral access remains an accepted residual).
 
-## Awaiting: Task 4 (human-verify)
+## Task 4 (human-verify): APPROVED by the user
 
 Run from the repository root:
 
