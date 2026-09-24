@@ -23,10 +23,16 @@ from algorunner.schemas.typespec import (
 )
 
 
+# Role labels for curated approaches (D-03, STRAT-02)
+ApproachRole = Literal["brute_force", "optimized", "alternative"]
+
+
 class Approach(BaseModel):
     name: str = Field(..., min_length=1)
     technique: str = Field(..., min_length=1)
     summary: str = Field(..., min_length=1)
+    role: ApproachRole
+    rationale: str = Field(..., min_length=1)
 
 
 class ApproachList(BaseModel):
