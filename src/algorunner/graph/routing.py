@@ -24,20 +24,20 @@ _TARGET_PRIORITY = ["solver", "code_generator"]
 
 
 def decide_after_analysis(state: GraphState) -> str:
-    analysis = state["analysis"]
+    analysis = state.get("analysis")
     if analysis is not None and analysis.needs_clarification:
         return "clarification_gate"
     return "strategist"
 
 
 def decide_after_review(state: GraphState) -> str:
-    review = state["review"]
+    review = state.get("review")
     if review is None:
         # No structured verdict is never treated as success.
         return "finalize_failed"
     if review.passed:
         return "finalize_success"
-    if state["iterations"] >= state.get("max_iterations", 5):
+    if state.get("iterations", 0) >= state.get("max_iterations", 5):
         return "finalize_failed"
     critical = [i for i in review.issues if i.severity == "critical"]
     targets = {_CATEGORY_TO_NODE.get(i.category, "solver") for i in critical}

@@ -11,12 +11,16 @@ module-local schema — not a durable inter-plan contract. The Code Generator
 constructs the real `Solution` once code/tests exist.
 """
 
+import logging
+
 from pydantic import BaseModel, Field
 
 from algorunner.agents.solver.prompts import build_solver_messages
 from algorunner.graph.state import ApproachState
 from algorunner.llm import client_factory
 from algorunner.llm.retry import call_structured
+
+logger = logging.getLogger(__name__)
 
 
 class SolverOutput(BaseModel):
@@ -31,7 +35,12 @@ async def solver_node(state: ApproachState) -> dict:
     Reads state["approach"] (the branch's dedicated approach) and elaborates
     it into algorithm description and complexity reasoning.
     """
+    logger.debug(f"solver_node: Entry state keys: {list(state.keys())}")
+    logger.debug(f"solver_node: approach_idx={state.get('approach_idx')}, review={state.get('review')}")
+
     approach = state["approach"]
+    logger.info(f"solver_node: Elaborating approach {approach.name}")
+
     completion = await call_structured(
         client_factory.get_client(),
         model=client_factory.model_for("solver"),
@@ -42,6 +51,7 @@ async def solver_node(state: ApproachState) -> dict:
     if message.parsed is None:
         raise ValueError(f"Solver refused or failed to parse: {message.refusal}")
     result = message.parsed
+    logger.info(f"solver_node: Successfully elaborated {approach.name}")
     return {
         "solver_output": {
             "approach": approach,

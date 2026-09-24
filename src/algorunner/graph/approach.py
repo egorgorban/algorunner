@@ -21,10 +21,14 @@ Later plans extend this file:
 - Plan 03-05: adds per-branch timeout to run_approach
 """
 
+import logging
+import traceback
 from functools import lru_cache
 from typing import Any
 
 from langgraph.errors import GraphBubbleUp
+
+logger = logging.getLogger(__name__)
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send
@@ -147,22 +151,34 @@ async def run_approach(state: ApproachInput) -> dict:
     On exception, catches everything except GraphBubbleUp (which must propagate),
     and BaseException (CancelledError must propagate for worker timeout).
     """
+    approach_idx = state["approach_idx"]
+    approach_name = state["approach"].name
+    logger.info(f"run_approach: Starting branch for approach {approach_idx} ({approach_name})")
+    logger.debug(f"run_approach: Input state keys: {list(state.keys())}")
+
     try:
         graph = get_approach_graph()
         branch_state = initial_branch_state(state)
+        logger.debug(f"run_approach: Initial branch state keys: {list(branch_state.keys())}")
+        logger.debug(f"run_approach: review={branch_state.get('review')}, iterations={branch_state.get('iterations')}")
+
         final = await graph.ainvoke(branch_state)
+        logger.info(f"run_approach: Branch {approach_idx} completed successfully")
         outcome = outcome_from_final(state, final)
     except GraphBubbleUp:
+        logger.error(f"run_approach: GraphBubbleUp in branch {approach_idx}")
         raise
     except Exception as exc:
+        logger.error(f"run_approach: Exception in branch {approach_idx}: {type(exc).__name__}: {exc}")
+        logger.error(f"run_approach: Full traceback:\n{traceback.format_exc()}")
         outcome = ApproachOutcome.not_verified(
-            approach_idx=state["approach_idx"],
+            approach_idx=approach_idx,
             approach=state["approach"],
             status="errored",
             error=f"{type(exc).__name__}: {exc}",
         )
 
-    return {"approach_outcomes": {state["approach_idx"]: outcome}}
+    return {"approach_outcomes": {approach_idx: outcome}}
 
 
 def build_approach_graph(checkpointer: object | None = None) -> CompiledStateGraph:
