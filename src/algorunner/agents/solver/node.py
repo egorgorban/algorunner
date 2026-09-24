@@ -40,7 +40,6 @@ async def solver_node(state: ApproachState) -> dict:
 
     approach = state["approach"]
     logger.info(f"solver_node: Elaborating approach {approach.name}")
-
     completion = await call_structured(
         client_factory.get_client(),
         model=client_factory.model_for("solver"),

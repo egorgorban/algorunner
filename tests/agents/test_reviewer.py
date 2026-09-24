@@ -24,7 +24,13 @@ def _exec(passed: bool, stderr: str = "") -> ExecutionResult:
 
 def _solution() -> Solution:
     return Solution(
-        approach=Approach(name="Hash map", technique="hash map", summary="One pass."),
+        approach=Approach(
+            name="Hash map",
+            technique="hash map",
+            summary="One pass.",
+            role="optimized",
+            rationale="Single pass solution.",
+        ),
         algorithm="Single pass with a complement map.",
         entry_point=EntryPoint(
             python_name="two_sum",

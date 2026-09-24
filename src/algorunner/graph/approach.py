@@ -151,6 +151,7 @@ async def run_approach(state: ApproachInput) -> dict:
     On exception, catches everything except GraphBubbleUp (which must propagate),
     and BaseException (CancelledError must propagate for worker timeout).
     """
+<<<<<<< HEAD
     approach_idx = state["approach_idx"]
     approach_name = state["approach"].name
     logger.info(f"run_approach: Starting branch for approach {approach_idx} ({approach_name})")
@@ -173,12 +174,28 @@ async def run_approach(state: ApproachInput) -> dict:
         logger.error(f"run_approach: Full traceback:\n{traceback.format_exc()}")
         outcome = ApproachOutcome.not_verified(
             approach_idx=approach_idx,
+=======
+    try:
+        graph = get_approach_graph()
+        branch_state = initial_branch_state(state)
+        final = await graph.ainvoke(branch_state)
+        outcome = outcome_from_final(state, final)
+    except GraphBubbleUp:
+        raise
+    except Exception as exc:
+        outcome = ApproachOutcome.not_verified(
+            approach_idx=state["approach_idx"],
+>>>>>>> worktree-agent-ae4af66b6386ae4a2
             approach=state["approach"],
             status="errored",
             error=f"{type(exc).__name__}: {exc}",
         )
 
+<<<<<<< HEAD
     return {"approach_outcomes": {approach_idx: outcome}}
+=======
+    return {"approach_outcomes": {state["approach_idx"]: outcome}}
+>>>>>>> worktree-agent-ae4af66b6386ae4a2
 
 
 def build_approach_graph(checkpointer: object | None = None) -> CompiledStateGraph:

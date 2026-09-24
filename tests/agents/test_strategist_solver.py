@@ -63,11 +63,19 @@ def _analysis(**overrides) -> ProblemAnalysis:
 async def test_solution_strategist_node_returns_tagged_approaches(monkeypatch):
     approaches = ApproachList(
         approaches=[
-            Approach(name="Brute force", technique="brute force", summary="Check all pairs."),
+            Approach(
+                name="Brute force",
+                technique="brute force",
+                summary="Check all pairs.",
+                role="brute_force",
+                rationale="Instructive baseline.",
+            ),
             Approach(
                 name="Hash map lookup",
                 technique="hash map",
                 summary="Track complements in a hash map for one pass.",
+                role="optimized",
+                rationale="Achieves O(n) time.",
             ),
         ]
     )
@@ -97,7 +105,13 @@ async def test_solver_node_returns_algorithm_and_complexity(monkeypatch):
         complexity_space="O(n), the hash map holds up to n entries.",
     )
     monkeypatch.setattr(client_factory_module, "get_client", lambda: _fake_client(solver_output))
-    approach = Approach(name="Hash map lookup", technique="hash map", summary="One pass.")
+    approach = Approach(
+        name="Hash map lookup",
+        technique="hash map",
+        summary="One pass.",
+        role="optimized",
+        rationale="Single pass solution.",
+    )
     # Phase 3: solver_node now expects ApproachState with approach (not approaches list)
     branch_state = {
         "task_id": "test-task",
