@@ -24,6 +24,9 @@ CR-03 (01-REVIEW.md): the checkpointer is no longer constructed/`.setup()`-
 called here per invocation (that raced under concurrent first-time calls).
 It is reused from `broker.state.checkpointer`, set exactly once at
 WORKER_STARTUP by `worker/broker.py`'s `_on_worker_startup` hook.
+
+Plan 03-05: adds PipelineContext with deadline and status_sink; _invoke_with_budget
+now builds context and passes it to ainvoke with recursion_limit.
 """
 
 import asyncio
@@ -34,6 +37,7 @@ from uuid import UUID
 from langgraph.types import Command
 
 from algorunner.config import settings
+from algorunner.graph.context import PipelineContext
 from algorunner.schemas.task import TaskError, TaskStatus
 from algorunner.storage.postgres import get_pool
 from algorunner.storage.tasks import (
@@ -49,6 +53,23 @@ from algorunner.worker.broker import broker
 logger = logging.getLogger(__name__)
 
 _pool = get_pool()
+
+
+async def _pg_status_sink(task_id: str, status: TaskStatus) -> None:
+    """Persist status transitions to Postgres (Pattern 11: logged, never raises).
+
+    Called from emit_status via the status_sink callback whenever a parent-level
+    node transitions the task status (designing_solution, generating_code,
+    writing_editorial). Exceptions are logged as warnings and never propagated.
+
+    Postgres remains the source of truth; a failed write is non-blocking.
+    """
+    try:
+        await update_task_status(_pool, UUID(task_id), status)
+    except Exception as exc:
+        logger.warning(
+            f"Failed to update status to {status.value} for task {task_id}: {type(exc).__name__}: {exc}"
+        )
 
 
 async def _handle_result_or_pause(task_id: str, result_state: dict) -> None:
@@ -73,11 +94,22 @@ async def _handle_result_or_pause(task_id: str, result_state: dict) -> None:
 
 async def _invoke_with_budget(graph, payload, config: dict, task_id: str) -> dict | None:
     """Run one graph invocation bounded by the remaining global time budget
-    (D-08, INFRA-04). The budget is cumulative ACTIVE execution time across
+    (D-07, D-10, INFRA-04). The budget is cumulative ACTIVE execution time across
     all invocations (initial run and clarification resumes); time parked in
     awaiting_clarification is never counted because it only accrues around
-    the ainvoke call itself. Returns None if the budget is exhausted (the
-    task is already marked FAILED with GLOBAL_TIMEOUT)."""
+    the ainvoke call itself.
+
+    Builds a PipelineContext with:
+    - deadline_monotonic: monotonic time when this invocation must complete
+    - editorial_reserve_s: time reserved for the Writer after branches
+    - status_sink: async callback to persist parent-level status to Postgres
+
+    Passes context= and recursion_limit to ainvoke. Returns None if the budget
+    is exhausted (the task is already marked FAILED with GLOBAL_TIMEOUT).
+
+    The deadline is recomputed on every invocation so clarification resumes get
+    a fresh deadline from the remaining active-execution budget.
+    """
     task = await get_task(_pool, UUID(task_id))
     used = task.active_execution_seconds if task is not None else 0.0
     remaining = settings.global_timeout_s - used
@@ -86,12 +118,27 @@ async def _invoke_with_budget(graph, payload, config: dict, task_id: str) -> dic
         await update_task_failed(_pool, UUID(task_id), timeout_error)
         return None
 
+    # Build context with deadline and status sink
+    deadline = time.monotonic() + remaining
+    ctx = PipelineContext(
+        deadline_monotonic=deadline,
+        editorial_reserve_s=settings.editorial_reserve_s,
+        status_sink=_pg_status_sink,
+    )
+
+    # Update config with recursion limit (8 * max_iterations + 30)
+    config = {
+        **config,
+        "recursion_limit": 8 * settings.max_iterations + 30,
+    }
+
     started = time.monotonic()
     try:
         return await asyncio.wait_for(
             graph.ainvoke(
                 payload,
                 config,
+                context=ctx,
                 # ainvoke()'s default durability is "async", which can lose a
                 # just-completed checkpoint write on worker crash. "sync"
                 # preserves the "resume from last completed node" guarantee.
@@ -139,14 +186,12 @@ async def solve_problem(task_id: str) -> None:
             "clarification_rounds": 0,
             "clarification_answer": None,
             "assumption_stated": None,
+            "clarifications": [],
             "approaches": [],
-            "solution": None,
-            "python_execution": None,
-            "go_execution": None,
-            "review": None,
-            "review_history": [],
-            "iterations": 0,
             "max_iterations": settings.max_iterations,
+            "approach_outcomes": {},
+            "editorial": None,
+            "editorial_warnings": [],
             "result": None,
             "error": None,
         }
