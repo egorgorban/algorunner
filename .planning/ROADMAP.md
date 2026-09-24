@@ -113,7 +113,24 @@ Plans:
   3. The article surfaces the difficulty rating, topic/technique tags, and the edge cases the Reviewer identified as handled, and reflects any resolved clarification in the problem restatement
   4. The full pipeline (Analyzer → Strategist → Solver → Code Generator → Test Generator → Executors → Reviewer → correction loop → Editorial Writer) runs as one deterministic LangGraph StateGraph, and every intermediate artifact (analysis, each solution's code/tests/review history, final editorial) is persisted to Garage
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — Tracer: Send fan-out of per-approach subgraphs → join → Editorial Writer (verbatim executed code, injected difficulty/tags/Big-O) → D-13 result; env repair + boto3 legitimacy gate; branch isolation and Phase 2 regressions on the new shape
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-02-PLAN.md — Strategist curation (role + rationale, cap max_approaches, dedup) and the 20-min time budget (deadline-bounded branches ship verified ones, Writer reserve, executor semaphore, status transitions, recursion limit)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 03-03-PLAN.md — Russian guarantee (Cyrillic check + one shared retry, EDITORIAL_ASSEMBLY_FAILED vs warnings) and editorial completeness (Reviewer-confirmed edge cases, minor notes, clarifications/assumption in the restatement)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 03-04-PLAN.md — Garage persistence (boto3 store, compose bucket/key provisioning, incremental D-19 trail, written-keys-only result) + live full-stack phase acceptance
 
 ### Phase 4: Realtime Streaming, Frontend & Documentation
 
@@ -139,5 +156,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Foundation & Task Lifecycle Skeleton | 2/2 | Complete    | 2026-09-22 |
 | 2. Verified Single-Solution Core Pipeline | 10/10 | Complete    | 2026-09-24 |
-| 3. Multi-Approach Editorial & Persistence | 0/TBD | Not started | - |
+| 3. Multi-Approach Editorial & Persistence | 0/4 | Planned | - |
 | 4. Realtime Streaming, Frontend & Documentation | 0/TBD | Not started | - |
