@@ -27,24 +27,40 @@ from algorunner.agents.editorial_writer.node import editorial_writer_node
 from algorunner.agents.problem_analyzer.node import problem_analyzer_node
 from algorunner.agents.solution_strategist.node import solution_strategist_node
 from algorunner.graph.approach import decide_after_join, fan_out_approaches
-from algorunner.graph.context import PipelineContext, emit_status
+from algorunner.graph.context import PipelineContext, emit_status, persist
 from algorunner.graph.routing import decide_after_analysis, decide_after_writer
 from algorunner.graph.state import GraphState
 from algorunner.schemas.execution import ExecutionResult
 from algorunner.schemas.task import TaskStatus
+from algorunner.storage.artifacts import analysis_key, editorial_key
 
 
 async def record_analysis_node(state: GraphState, runtime: Runtime[PipelineContext]) -> dict:
-    """Emit DESIGNING_SOLUTION status after analysis completes (D-10, Pattern 11).
+    """Emit DESIGNING_SOLUTION status and persist analysis after analysis completes.
 
-    This zero-logic node marks the transition from problem analysis to solution
-    design. It provides a natural checkpoint for status tracking (designing_solution
-    status in Postgres) before branching to strategy and execution.
+    This node marks the transition from problem analysis to solution design.
+    It provides a natural checkpoint for status tracking (designing_solution status
+    in Postgres) before branching to strategy and execution.
 
-    Plan 03-08 will add artifact persistence (writing analysis to Garage) to this node.
+    Persists analysis.json to Garage after the final analysis (no clarifications
+    have occurred; this runs only on the no-clarification path after the Analyzer).
+    The analysis key is written exactly once per invocation (RESEARCH Pattern 8, D-17).
     """
     ctx = runtime.context
-    await emit_status(ctx, state["task_id"], TaskStatus.DESIGNING_SOLUTION)
+    task_id = state["task_id"]
+    analysis = state.get("analysis")
+
+    # Emit status
+    await emit_status(ctx, task_id, TaskStatus.DESIGNING_SOLUTION)
+
+    # Persist analysis (runs only on no-clarification path after final analysis)
+    if analysis is not None:
+        await persist(
+            ctx,
+            lambda: analysis_key(task_id),
+            analysis.model_dump(),
+        )
+
     return {}
 
 
@@ -69,18 +85,36 @@ async def collect_approaches(state: GraphState) -> dict:
     return {}
 
 
-async def finalize_success(state: GraphState) -> dict:
+async def finalize_success(state: GraphState, runtime: Runtime[PipelineContext]) -> dict:
     """Write the final result dict for a successfully completed run.
 
-    Result shape (D-13 approaches index, D-11 editorial):
+    Result shape (D-13 approaches index, D-11 editorial, D-20 artifacts):
     - approaches: array of {approach_id, name, technique, role, status, iterations}
       in ascending approach_id order
     - editorial: structured Editorial JSON (filled by editorial_writer_node)
     - editorial_warnings: list of warning codes from deterministic checks (Plan 03-06)
+    - artifact_keys: list of successfully written artifact keys in deterministic order
+    - artifacts_incomplete: bool indicating if any write failed or was skipped
 
     Pre-Phase-3 completed rows keep the old shape with per-solution keys.
+
+    Persists editorial.json to Garage before returning. The editorial key is the
+    last artifact (D-20 ordering).
     """
+    ctx = runtime.context
+    task_id = state["task_id"]
     outcomes = state.get("approach_outcomes", {})
+    editorial = state.get("editorial")
+
+    # Persist editorial (last artifact key per D-20 ordering)
+    if editorial is not None:
+        await persist(
+            ctx,
+            lambda: editorial_key(task_id),
+            editorial.model_dump(),
+        )
+
+    # Build approaches index
     approaches_index = [
         {
             "approach_id": idx,
@@ -92,13 +126,24 @@ async def finalize_success(state: GraphState) -> dict:
         }
         for idx, outcome in sorted(outcomes.items())
     ]
+
+    # Build result dict with artifact keys and completeness flag
     result = {
         "approaches": approaches_index,
     }
-    if state.get("editorial"):
-        result["editorial"] = state["editorial"].model_dump()
+    if editorial:
+        result["editorial"] = editorial.model_dump()
     # D-16: editorial_warnings is always present (empty list if all checks pass)
     result["editorial_warnings"] = state.get("editorial_warnings", [])
+
+    # D-20: Add artifact tracking
+    if ctx is not None and ctx.artifacts is not None:
+        result["artifact_keys"] = ctx.artifacts.written_keys()
+        result["artifacts_incomplete"] = ctx.artifacts.any_failed
+    else:
+        result["artifact_keys"] = []
+        result["artifacts_incomplete"] = True  # No recorder = incomplete
+
     return {"result": result}
 
 

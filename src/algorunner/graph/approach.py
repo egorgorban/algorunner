@@ -40,10 +40,11 @@ from algorunner.agents.reviewer.node import reviewer_node
 from algorunner.agents.solver.node import solver_node
 from algorunner.agents.test_generator.node import test_generator_node
 from algorunner.config import settings
-from algorunner.graph.context import PipelineContext, branch_budget_s, emit_status
+from algorunner.graph.context import PipelineContext, branch_budget_s, emit_status, persist
 from algorunner.graph.harness import render_go_program, render_python_program
 from algorunner.graph.routing import decide_after_review
 from algorunner.graph.state import ApproachInput, ApproachState
+from algorunner.storage.artifacts import iteration_key, summary_key
 from algorunner.schemas.execution import ExecutionResult
 from algorunner.schemas.outcome import ApproachOutcome
 from algorunner.schemas.task import TaskStatus
@@ -118,6 +119,51 @@ async def execute_go_node(state: ApproachState, runtime: Runtime[PipelineContext
             program.code, program.tests, timeout_s=_GO_TIMEOUT_S
         )
     return {"go_execution": _require_pass_marker(result)}
+
+
+async def persist_iteration_node(state: ApproachState, runtime: Runtime[PipelineContext]) -> dict:
+    """Persist iteration artifacts after the reviewer (solution, python_exec, go_exec, review).
+
+    Runs after the reviewer node, which increments state["iterations"], making it 1-based.
+    Concurrently persists the four artifacts for (task_id, approach_idx, n):
+    - solution.json from state["solution"].model_dump()
+    - python_exec.json from state["python_execution"].model_dump()
+    - go_exec.json from state["go_execution"].model_dump()
+    - review.json from state["review"].model_dump()
+
+    Any None payloads are skipped. Storage failures are logged and recorded as incomplete
+    in the recorder (D-17, D-19). Returns {} (no state changes).
+
+    Runs outside the async.wait_for timeout in run_approach, so it does not interfere
+    with branch deadline handling.
+    """
+    ctx = runtime.context
+    task_id = state.get("task_id")
+    approach_idx = state.get("approach_idx")
+    n = state.get("iterations")  # 1-based, already incremented by reviewer
+
+    if not all([task_id, approach_idx is not None, n]):
+        return {}
+
+    # Build concurrent writes for the four artifacts
+    async def write_artifact(kind, payload):
+        if payload is None:
+            return
+        await persist(
+            ctx,
+            lambda: iteration_key(task_id, approach_idx, n, kind),
+            payload.model_dump() if hasattr(payload, 'model_dump') else payload,
+        )
+
+    payloads = {
+        "solution": state.get("solution"),
+        "python_exec": state.get("python_execution"),
+        "go_exec": state.get("go_execution"),
+        "review": state.get("review"),
+    }
+
+    await asyncio.gather(*[write_artifact(k, v) for k, v in payloads.items()])
+    return {}
 
 
 def initial_branch_state(inp: ApproachInput) -> ApproachState:
@@ -250,15 +296,35 @@ async def run_approach(state: ApproachInput, runtime: Runtime[PipelineContext]) 
             error=f"{type(exc).__name__}: {exc}",
         )
 
+    # Persist approach summary on every path (D-17, including the global-timeout path).
+    # The summary is written outside the subgraph wait_for, so it lands within the
+    # editorial_reserve_s window before the worker's hard cancel (D-17).
+    task_id = state["task_id"]
+    summary_payload = {
+        "approach_idx": outcome.approach_idx,
+        "name": outcome.approach.name,
+        "technique": outcome.approach.technique,
+        "role": outcome.approach.role,
+        "status": outcome.status,
+        "iterations": outcome.iterations,
+        "error": outcome.error,
+    }
+    await persist(
+        ctx,
+        lambda: summary_key(task_id, approach_idx),
+        summary_payload,
+    )
+
     return {"approach_outcomes": {approach_idx: outcome}}
 
 
 def build_approach_graph(checkpointer: object | None = None) -> CompiledStateGraph:
     """Build the per-approach subgraph with Phase 2 nodes and routers.
 
-    Nodes: solver, code_generator, test_generator, execute_python, execute_go, reviewer.
+    Nodes: solver, code_generator, test_generator, execute_python, execute_go, reviewer,
+    persist_iteration (Plan 03-08: writes iteration artifacts after reviewer).
     Edges form the Phase 2 linear chain with decide_after_review routing back to solver
-    or code_generator on failure, or to END on success.
+    or code_generator on failure, or to persist_iteration then END on success.
 
     Compiled WITHOUT a checkpointer argument — the subgraph inherits the parent's
     checkpointer via the checkpointer passed to build_pipeline_graph.
@@ -272,6 +338,7 @@ def build_approach_graph(checkpointer: object | None = None) -> CompiledStateGra
     builder.add_node("execute_python", execute_python_node)
     builder.add_node("execute_go", execute_go_node)
     builder.add_node("reviewer", reviewer_node)
+    builder.add_node("persist_iteration", persist_iteration_node)
 
     builder.add_edge(START, "solver")
     builder.add_edge("solver", "code_generator")
@@ -280,16 +347,20 @@ def build_approach_graph(checkpointer: object | None = None) -> CompiledStateGra
     builder.add_edge("execute_python", "execute_go")
     builder.add_edge("execute_go", "reviewer")
 
+    # Route from reviewer: on success/exhaustion, persist and exit; on failure, retry
     builder.add_conditional_edges(
         "reviewer",
         decide_after_review,
         {
-            "finalize_success": END,
-            "finalize_failed": END,
+            "finalize_success": "persist_iteration",
+            "finalize_failed": "persist_iteration",
             "solver": "solver",
             "code_generator": "code_generator",
         },
     )
+
+    # Persist iteration artifacts, then exit
+    builder.add_edge("persist_iteration", END)
 
     return builder.compile(checkpointer=checkpointer)
 

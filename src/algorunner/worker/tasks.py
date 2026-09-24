@@ -39,6 +39,7 @@ from langgraph.types import Command
 from algorunner.config import settings
 from algorunner.graph.context import PipelineContext
 from algorunner.schemas.task import TaskError, TaskStatus
+from algorunner.storage.artifacts import ArtifactRecorder, get_artifact_store
 from algorunner.storage.postgres import get_pool
 from algorunner.storage.tasks import (
     add_active_execution_seconds,
@@ -118,12 +119,14 @@ async def _invoke_with_budget(graph, payload, config: dict, task_id: str) -> dic
         await update_task_failed(_pool, UUID(task_id), timeout_error)
         return None
 
-    # Build context with deadline and status sink
+    # Build context with deadline, status sink, and artifact recorder (D-17..D-20)
     deadline = time.monotonic() + remaining
+    artifacts = ArtifactRecorder(get_artifact_store())
     ctx = PipelineContext(
         deadline_monotonic=deadline,
         editorial_reserve_s=settings.editorial_reserve_s,
         status_sink=_pg_status_sink,
+        artifacts=artifacts,
     )
 
     # Update config with recursion limit (8 * max_iterations + 30)
