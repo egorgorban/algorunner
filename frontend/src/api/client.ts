@@ -109,3 +109,107 @@ export async function getTask(apiBase: string, taskId: string): Promise<TaskReco
 
   return data;
 }
+
+/**
+ * Convert an ApiError to a human-readable Russian error message.
+ * Handles 422 validation errors by listing field names,
+ * 413 body size limits, network errors (status 0), and generic server errors.
+ */
+export function formatApiError(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 422) {
+      // 422: Validation error with field details
+      const detail = error.detail;
+      if (Array.isArray(detail)) {
+        const fieldNames = detail
+          .map((item: unknown) => {
+            if (typeof item === "object" && item !== null) {
+              const obj = item as Record<string, unknown>;
+              const loc = obj.loc as unknown[];
+              if (Array.isArray(loc) && loc.length > 0) {
+                // loc[0] is "body", skip it and get the field name
+                const field = loc.slice(1).join(".");
+                const msg = (obj.msg as string) || "";
+                if (field && msg) {
+                  return `Поле ${field}: ${msg}`;
+                }
+              }
+            }
+            return null;
+          })
+          .filter((x) => x !== null);
+        if (fieldNames.length > 0) {
+          return fieldNames.join("; ");
+        }
+      }
+      // Fallback for malformed 422
+      return "Ошибка валидации";
+    } else if (error.status === 413) {
+      return "Запрос слишком большой";
+    } else if (error.status === 0) {
+      return "Нет соединения с сервером";
+    } else if (error.status >= 400) {
+      return `Ошибка сервера (код ${error.status})`;
+    }
+  }
+
+  // Generic fallback
+  return "Неизвестная ошибка";
+}
+
+export async function answerClarification(
+  apiBase: string,
+  taskId: string,
+  answer: string
+): Promise<{ kind: "accepted" } | { kind: "conflict" } | { kind: "error"; message: string }> {
+  const response = await fetch(`${apiBase}/api/v1/tasks/${encodeURIComponent(taskId)}/clarification`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ answer }),
+  });
+
+  const data: unknown = await response.json();
+
+  if (response.status === 202) {
+    return { kind: "accepted" };
+  }
+
+  if (response.status === 409) {
+    return { kind: "conflict" };
+  }
+
+  // 404, 422, or other error
+  const apiError = new ApiError(`Failed to answer clarification`, response.status, data);
+  return {
+    kind: "error",
+    message: formatApiError(apiError),
+  };
+}
+
+export async function getClarificationQuestion(
+  apiBase: string,
+  taskId: string
+): Promise<string | null> {
+  const response = await fetch(
+    `${apiBase}/api/v1/tasks/${encodeURIComponent(taskId)}/clarification`
+  );
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  const data: unknown = await response.json();
+
+  if (!response.ok) {
+    return null;
+  }
+
+  if (typeof data === "object" && data !== null) {
+    const obj = data as Record<string, unknown>;
+    if (typeof obj.question === "string") {
+      return obj.question;
+    }
+  }
+
+  return null;
+}
