@@ -94,6 +94,7 @@ dependencies = [
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "redis" },
     { name = "taskiq" },
     { name = "taskiq-fastapi" },
     { name = "taskiq-redis" },
@@ -106,6 +107,7 @@ dev = [
     { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "websockets" },
 ]
 
 [package.metadata]
@@ -118,6 +120,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.3.6" },
     { name = "pydantic", specifier = ">=2.13.5" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
+    { name = "redis", specifier = ">=8.1.0" },
     { name = "taskiq", specifier = ">=0.12.6" },
     { name = "taskiq-fastapi", specifier = ">=0.5.0" },
     { name = "taskiq-redis", specifier = ">=1.2.3" },
@@ -130,6 +133,7 @@ dev = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
+    { name = "websockets", specifier = ">=16.1.1" },
 ]
 
 [[package]]

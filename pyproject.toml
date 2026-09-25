@@ -16,6 +16,7 @@ dependencies = [
     "psycopg[binary,pool]>=3.3.6",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
+    "redis>=8.1.0",
     "taskiq>=0.12.6",
     "taskiq-fastapi>=0.5.0",
     "taskiq-redis>=1.2.3",
@@ -35,6 +36,7 @@ dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "websockets>=16.1.1",
 ]
 
 [tool.pytest.ini_options]

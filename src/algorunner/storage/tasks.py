@@ -3,6 +3,11 @@
 Security note (T-01-01): every statement below uses `%s` placeholders only.
 Never string-format/f-string `problem_text`/`examples` (or any other
 user-controlled value) into SQL.
+
+Status writers publish to Redis Pub/Sub after committing to Postgres (Phase 4,
+user-resolved write order: D-05, D-01, API-04). Each writer returns updated_at
+via RETURNING, then publishes the event after the connection is released back
+to the pool.
 """
 
 from uuid import UUID
@@ -11,6 +16,7 @@ from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
+from algorunner.realtime.publisher import publish_status
 from algorunner.schemas.task import TaskError, TaskRecord, TaskStatus, TaskSubmission
 
 
@@ -44,10 +50,19 @@ async def update_task_status(
     pool: AsyncConnectionPool, task_id: UUID, status: TaskStatus
 ) -> None:
     async with pool.connection() as conn:
-        await conn.execute(
-            "UPDATE tasks SET status = %s, updated_at = now() WHERE id = %s",
+        cur = await conn.execute(
+            """
+            UPDATE tasks
+            SET status = %s, updated_at = GREATEST(clock_timestamp(), updated_at + interval '1 microsecond')
+            WHERE id = %s
+            RETURNING updated_at
+            """,
             (status.value, task_id),
         )
+        row = await cur.fetchone()
+
+    if row:
+        await publish_status(task_id, status, row["updated_at"])
 
 
 async def update_task_completed(
