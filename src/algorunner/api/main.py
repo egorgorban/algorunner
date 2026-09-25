@@ -1,12 +1,15 @@
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
+import redis.asyncio
 import taskiq_fastapi
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
 from algorunner.api.routes.config import router as config_router
+from algorunner.api.routes.events import router as events_router
 from algorunner.api.routes.tasks import router as tasks_router
+from algorunner.config import settings
 from algorunner.storage.migrate import run_migrations_with_lock
 from algorunner.storage.postgres import get_pool
 from algorunner.worker.broker import broker
@@ -24,6 +27,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await pool.open()
     app.state.pg_pool = pool
 
+    # Redis client for Pub/Sub (no socket_timeout, blocking get_message needs it)
+    app.state.redis = redis.asyncio.Redis.from_url(settings.redis_url)
+
     await run_migrations_with_lock(pool)
 
     taskiq_fastapi.init(broker, "algorunner.api.main:app")
@@ -36,11 +42,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         if not broker.is_worker_process:
             await broker.shutdown()
+        await app.state.redis.aclose()
         await pool.close()
 
 
 app = FastAPI(title="AlgoRunner", lifespan=lifespan)
 app.include_router(config_router)
+app.include_router(events_router)
 app.include_router(tasks_router)
 
 
