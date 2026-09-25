@@ -160,8 +160,35 @@ Plans:
   2. A user can submit a problem, watch live status, answer a clarification prompt, and view the final editorial (per-approach explanation, Python/Go code, complexity, difficulty, tags, edge cases) entirely through the React + TypeScript web UI
   3. The repository includes the full documentation set (`CLAUDE.md`, `docs/product/prd.md`, `docs/architecture/{architecture,agents,workflow,data-model}.md`, `docs/development/{testing,conventions}.md`, `docs/plans/implementation-plan.md`) with deferred/future-scope items captured in their own dedicated section
 
-**Plans**: TBD
+**Plans**: 8 plans
 **UI hint**: yes
+
+Plans:
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — Tracer: status write -> Postgres -> Redis -> WS relay -> client; every status writer publishes after commit; monotonic updated_at; ordering, refresh, terminal close and late-connect guarantees (API-04, API-05)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 04-02-PLAN.md — The 4 missing in-graph statuses (D-04); GET /api/config (D-20); WS Origin allowlist (4403) and connection cap (1013)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 04-03-PLAN.md — Frontend tracer: npm legitimacy gate, Vite + React + TS scaffold, submit a problem and watch live status (Context + reducer, WS hook with reconnect)
+- [ ] 04-04-PLAN.md — Docs: architecture, agents, workflow, data-model, PRD, implementation plan, DEFERRED.md
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 04-05-PLAN.md — UI: example list + API-mirroring validation; non-dismissible clarification modal (UI-01, UI-03)
+- [ ] 04-06-PLAN.md — UI: full-page editorial with collapsible approaches, highlighted and copyable Python/Go code (UI-04)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 04-07-PLAN.md — Deployment: frontend image, nginx gateway, 7-service compose; live acceptance through nginx + end-of-phase UI walkthrough
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 04-08-PLAN.md — Docs: testing and conventions guides, .claude/CLAUDE.md repository rules, README, docs completeness gate
 
 ## Progress
 
@@ -173,4 +200,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Foundation & Task Lifecycle Skeleton | 2/2 | Complete    | 2026-09-22 |
 | 2. Verified Single-Solution Core Pipeline | 10/10 | Complete    | 2026-09-24 |
 | 3. Multi-Approach Editorial & Persistence | 0/4 | Planned | - |
-| 4. Realtime Streaming, Frontend & Documentation | 0/TBD | Not started | - |
+| 4. Realtime Streaming, Frontend & Documentation | 0/8 | Planned | - |
