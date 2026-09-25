@@ -12,6 +12,7 @@ import { useTaskState, useTaskDispatch } from "./context/TaskContext";
 import { useTaskEvents } from "./hooks/useTaskEvents";
 import { ProblemInput } from "./pages/ProblemInput";
 import { StatusView } from "./pages/StatusView";
+import { EditorialView } from "./pages/EditorialView";
 
 function App(): React.ReactElement {
   const [config, setConfig] = useState<ClientConfig | null>(null);
@@ -82,17 +83,21 @@ function App(): React.ReactElement {
         <p className="text-gray-600">Решения для задач собеседований</p>
       </header>
 
-      <main className="max-w-2xl mx-auto">
+      <main>
         {!state.taskId ? (
-          <ProblemInput
-            apiBase={apiBase}
-            config={config}
-            onSubmitted={handleTaskSubmitted}
-          />
+          <div className="max-w-2xl mx-auto">
+            <ProblemInput
+              apiBase={apiBase}
+              config={config}
+              onSubmitted={handleTaskSubmitted}
+            />
+          </div>
+        ) : state.status === "completed" ? (
+          <EditorialView onNewProblem={handleNewProblem} />
         ) : (
-          <StatusView
-            onNewProblem={handleNewProblem}
-          />
+          <div className="max-w-2xl mx-auto">
+            <StatusView onNewProblem={handleNewProblem} />
+          </div>
         )}
       </main>
     </div>
