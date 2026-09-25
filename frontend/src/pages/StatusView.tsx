@@ -1,13 +1,17 @@
 /**
  * Status view showing task progress and history (UI-02, D-02).
  * Displays current status with elapsed time, history of status changes, and error details.
+ * Includes clarification modal for paused tasks (UI-03).
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import * as React from "react";
-import { useTaskState } from "../context/TaskContext";
+import { useTaskState, useTaskDispatch } from "../context/TaskContext";
 import type { ClientConfig } from "../api/types";
 import { STATUS_LABELS } from "../lib/statusLabels";
 import { StatusIndicator } from "../components/StatusIndicator";
+import { ClarificationModal } from "../components/ClarificationModal";
+import { pendingClarification } from "../lib/clarification";
+import { getTask } from "../api/client";
 
 interface StatusViewProps {
   apiBase?: string;
@@ -16,9 +20,12 @@ interface StatusViewProps {
 }
 
 export function StatusView({
+  apiBase = "",
+  config,
   onNewProblem,
 }: StatusViewProps): React.ReactElement {
   const state = useTaskState();
+  const dispatch = useTaskDispatch();
 
   if (!state.task || !state.status) {
     return <div className="p-6 text-center text-gray-500">Загрузка задачи...</div>;
@@ -102,6 +109,29 @@ export function StatusView({
       >
         ← Новая задача
       </button>
+
+      {/* Clarification modal */}
+      {config && state.taskId && (
+        <ClarificationModal
+          apiBase={apiBase}
+          taskId={state.taskId ?? ""}
+          pending={pendingClarification(state)}
+          maxAnswerChars={config.max_answer_chars}
+          onAnswered={() => {
+            dispatch({ type: "UPDATE_STATUS", status: "analyzing_problem" });
+          }}
+          onConflict={async () => {
+            try {
+              if (state.taskId) {
+                const updatedTask = await getTask(apiBase, state.taskId);
+                dispatch({ type: "SNAPSHOT", task: updatedTask });
+              }
+            } catch {
+              // Leave state as-is; the stream will correct it
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
