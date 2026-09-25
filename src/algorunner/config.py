@@ -47,5 +47,13 @@ class Settings(BaseSettings):
     retry_wait_min_s: float = 2.0
     retry_wait_max_s: float = 30.0
 
+    # Phase 4 D-20: values served to the browser by GET /api/config
+    client_api_base_url: str = "/api/v1"  # Relative URL for same-origin dev/prod
+    client_ws_base_url: str | None = None  # None means browser derives ws(s)://host from location
+
+    # Phase 4 API-04 WebSocket guards (T-04-02-02/03)
+    ws_allowed_origins: list[str] = []  # Empty allows every origin; pydantic-settings parses JSON list
+    ws_max_connections: int = 200
+
 
 settings = Settings()

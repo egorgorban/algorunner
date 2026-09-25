@@ -55,8 +55,10 @@ class PipelineContext:
     editorial_reserve_s: time reserved for the Writer AFTER branches complete.
         Subtracted from remaining budget to compute branch_budget_s.
 
-    status_sink: async callback to persist parent-level status transitions
-        (designing_solution, generating_code, writing_editorial) to Postgres.
+    status_sink: async callback to persist status transitions to Postgres.
+        Called from emit_status for parent-level and per-approach-branch statuses:
+        - Parent level: designing_solution, generating_code, writing_editorial
+        - Per-branch (Plan 04-02): generating_tests, executing_tests, reviewing, correcting
         Never called if None.
 
     artifacts: ArtifactRecorder instance for persisting intermediates to Garage,

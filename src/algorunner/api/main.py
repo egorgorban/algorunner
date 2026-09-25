@@ -6,6 +6,7 @@ import taskiq_fastapi
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
+from algorunner.api.routes.config import router as config_router
 from algorunner.api.routes.events import router as events_router
 from algorunner.api.routes.tasks import router as tasks_router
 from algorunner.config import settings
@@ -46,8 +47,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="AlgoRunner", lifespan=lifespan)
-app.include_router(tasks_router)
+app.include_router(config_router)
 app.include_router(events_router)
+app.include_router(tasks_router)
 
 
 @app.middleware("http")
