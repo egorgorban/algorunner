@@ -5,7 +5,8 @@
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import * as React from "react";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { highlight } from "../lib/highlight";
 
 export interface CodeBlockProps {
   code: string;
@@ -14,6 +15,9 @@ export interface CodeBlockProps {
 
 export function CodeBlock({ code, language }: CodeBlockProps): React.ReactElement {
   const [copied, setCopied] = useState(false);
+
+  // Compute highlighted HTML once per code/language change
+  const highlightedHtml = useMemo(() => highlight(code, language), [code, language]);
 
   const languageLabel = language === "python" ? "Python" : "Go";
 
@@ -36,24 +40,26 @@ export function CodeBlock({ code, language }: CodeBlockProps): React.ReactElemen
     }
 
     // Fallback: select text and execCommand
-    const codeEl = document.querySelector(`[data-code-block-${language}]`) as HTMLElement | null;
+    const codeEl = document.querySelector(`[data-code-block="${language}"]`) as HTMLElement | null;
     if (codeEl) {
       const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(codeEl);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
+      if (selection) {
+        const range = document.createRange();
+        range.selectNodeContents(codeEl);
+        selection.removeAllRanges();
+        selection.addRange(range);
 
-      try {
-        const success = document.execCommand("copy");
-        if (success) {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
-          selection?.removeAllRanges();
-          return;
+        try {
+          const success = document.execCommand("copy");
+          if (success) {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+            selection.removeAllRanges();
+            return;
+          }
+        } catch (e) {
+          console.debug("execCommand copy failed:", e);
         }
-      } catch (e) {
-        console.debug("execCommand copy failed:", e);
       }
     }
 
@@ -75,15 +81,13 @@ export function CodeBlock({ code, language }: CodeBlockProps): React.ReactElemen
         </button>
       </div>
 
-      {/* Code block with highlighting (Task 2 adds dangerouslySetInnerHTML) */}
+      {/* Code block with syntax highlighting from highlight.js */}
       <pre className="overflow-x-auto p-4 text-sm text-gray-100">
         <code
           className={`hljs language-${language}`}
           data-code-block={language}
-          // Task 2: dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-        >
-          {code}
-        </code>
+          dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+        />
       </pre>
     </div>
   );
