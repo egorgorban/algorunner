@@ -797,16 +797,19 @@ Also: `README.md` is currently **empty (0 bytes)** [VERIFIED: ls -la]. A short R
 | A5 | Per-connection Pub/Sub (one Redis connection per open WS) is acceptable at v1 scale | Alternatives | Redis connection exhaustion under many viewers. Mitigate with a WS connection cap (Security) |
 | A6 | Interpreting D-01 "Postgres status writes happen separately" as compatible with write-then-publish inside the same storage function (publish failure isolated) | Pattern 1 | If the user meant Redis-first publishing, the timestamp-dedupe invariant breaks. **Confirm with the user in plan-check** |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Root `CLAUDE.md` vs `.claude/CLAUDE.md`.**
+1. **Root `CLAUDE.md` vs `.claude/CLAUDE.md`.** RESOLVED
    - What we know: INFRA-05 and success criterion 3 say `CLAUDE.md`. D-14 says "update existing" (the existing file is `.claude/CLAUDE.md`, which `config.json` sets as `claude_md_path`). D-16 lists "`CLAUDE.md` (root)".
    - Unclear: whether a verifier expects a repo-root file.
    - Recommendation: honor D-14 (single source of truth in `.claude/CLAUDE.md`, outside GSD markers) and state this path explicitly in the plan's must-haves. Ask the user once at plan-check. Do not create two diverging rule files.
-2. **Should the WS endpoint enforce an Origin allowlist?**
+   - RESOLVED: the user chose `.claude/CLAUDE.md` only, with no root `CLAUDE.md`. 04-08 Task 2 adds a `## Repository Rules` section outside the GSD markers, and `scripts/check_docs.py` check 3 fails if a root `CLAUDE.md` exists.
+2. **Should the WS endpoint enforce an Origin allowlist?** RESOLVED
    - What we know: no auth or cookies exist, so cross-site WS hijacking leaks only what `GET /tasks/{id}` already exposes to anyone holding the UUID.
    - Recommendation: add an optional `ws_allowed_origins: list[str]` setting (empty = allow all) and document it. Low effort, and it answers Vite's "target should check Origin" warning.
-3. **`frontend` compose service in dev mode?** D-21 says "Vite dev or nginx for prod". Recommend the compose service is always the built nginx image; local dev runs `npm run dev` on the host against `api` on :8000.
+   - RESOLVED: adopted as recommended. 04-02 Task 3 implements `ws_allowed_origins`. The default is an empty list, which allows every origin. A non-empty list closes a mismatched Origin with 4403 before any frame is sent.
+3. **`frontend` compose service in dev mode?** D-21 says "Vite dev or nginx for prod". Recommend the compose service is always the built nginx image; local dev runs `npm run dev` on the host against `api` on :8000. RESOLVED
+   - RESOLVED: adopted as recommended. In 04-07 the `frontend` compose service is always the multi-stage nginx image, and local dev runs `npm --prefix frontend run dev` on the host against the api on :8000. That dev command is documented in the 04-08 README.
 
 ## Environment Availability
 
