@@ -59,9 +59,13 @@ _pool = get_pool()
 async def _pg_status_sink(task_id: str, status: TaskStatus) -> None:
     """Persist status transitions to Postgres (Pattern 11: logged, never raises).
 
-    Called from emit_status via the status_sink callback whenever a parent-level
-    node transitions the task status (designing_solution, generating_code,
-    writing_editorial). Exceptions are logged as warnings and never propagated.
+    Called from emit_status via the status_sink callback for parent-level and
+    per-branch statuses:
+    - Parent level: designing_solution, generating_code, writing_editorial
+    - Per-branch (Plan 04-02): generating_tests, executing_tests, reviewing, correcting
+
+    After writing to Postgres, publishes a status event to Redis pub/sub
+    (storage.publish_status, per 04-01). Exceptions are logged and never propagated.
 
     Postgres remains the source of truth; a failed write is non-blocking.
     """

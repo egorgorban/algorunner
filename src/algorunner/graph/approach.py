@@ -26,6 +26,7 @@ Later plans extend this file:
 import asyncio
 import logging
 import traceback
+from collections.abc import Awaitable, Callable
 from functools import lru_cache
 from typing import Any
 
@@ -78,6 +79,34 @@ def _executor_slot() -> asyncio.Semaphore:
     return _executor_semaphores[limit]
 
 
+def _with_status(
+    node: Callable[[dict], Awaitable[dict]],
+    status_for: Callable[[dict], TaskStatus | None],
+) -> Callable[[dict, Runtime[PipelineContext]], Awaitable[dict]]:
+    """Wrapper that emits a status before invoking a state-only node.
+
+    Args:
+        node: An async node function with signature (state: dict) -> dict
+        status_for: A function that maps state to TaskStatus or None. When None,
+            no status is emitted.
+
+    Returns:
+        An async node with signature (state: dict, runtime: Runtime[PipelineContext]) -> dict
+        that emits the status (if status_for returns one) before calling the original node.
+
+    The wrapper copies the original node's __name__ for debugging.
+    """
+
+    async def wrapped(state: dict, runtime: Runtime[PipelineContext]) -> dict:
+        status = status_for(state)
+        if status is not None:
+            await emit_status(runtime.context, state["task_id"], status)
+        return await node(state)
+
+    wrapped.__name__ = node.__name__
+    return wrapped
+
+
 def _require_pass_marker(result: ExecutionResult) -> ExecutionResult:
     """T-02-09-04: exit code 0 alone is not proof the harness ran every case
     (generated code could call exit() at import time). A pass must also carry
@@ -96,9 +125,12 @@ def _require_pass_marker(result: ExecutionResult) -> ExecutionResult:
 async def execute_python_node(state: ApproachState, runtime: Runtime[PipelineContext]) -> dict:
     """Execute Python code with executor concurrency bounded per worker process.
 
+    Emits EXECUTING_TESTS status before running the executor.
+
     Pitfall 5: acquires _executor_slot before running to ensure no more than
     settings.executor_max_concurrency Python/Go processes are in flight.
     """
+    await emit_status(runtime.context, state["task_id"], TaskStatus.EXECUTING_TESTS)
     solution = state["solution"]
     program = render_python_program(solution.code_python, solution.entry_point, solution.tests)
     async with _executor_slot():
@@ -326,18 +358,55 @@ def build_approach_graph(checkpointer: object | None = None) -> CompiledStateGra
     Edges form the Phase 2 linear chain with decide_after_review routing back to solver
     or code_generator on failure, or to persist_iteration then END on success.
 
+    Plan 04-02: Adds status emission for D-04 status taxonomy:
+    - solver and code_generator emit CORRECTING when state["iterations"] > 0 (correction iterations)
+    - test_generator emits GENERATING_TESTS (always)
+    - execute_python emits EXECUTING_TESTS as first statement
+    - reviewer emits REVIEWING (always)
+    - execute_go emits no status
+
     Compiled WITHOUT a checkpointer argument — the subgraph inherits the parent's
     checkpointer via the checkpointer passed to build_pipeline_graph.
 
     Has context_schema=PipelineContext to receive runtime context from parent.
     """
     builder = StateGraph(ApproachState, context_schema=PipelineContext)
-    builder.add_node("solver", solver_node)
-    builder.add_node("code_generator", code_generator_node)
-    builder.add_node("test_generator", test_generator_node)
+
+    # Wrap nodes that emit status. State-only nodes (solver, code_generator, test_generator, reviewer)
+    # are wrapped with _with_status to receive runtime context and emit status.
+    # execute_python_node already takes runtime and emits status inline.
+    # execute_go_node does not emit status.
+
+    # Solver emits CORRECTING only on correction iterations (iterations > 0)
+    solver_with_status = _with_status(
+        solver_node,
+        lambda state: TaskStatus.CORRECTING if state.get("iterations", 0) > 0 else None,
+    )
+
+    # Code generator emits CORRECTING only on correction iterations
+    code_gen_with_status = _with_status(
+        code_generator_node,
+        lambda state: TaskStatus.CORRECTING if state.get("iterations", 0) > 0 else None,
+    )
+
+    # Test generator always emits GENERATING_TESTS
+    test_gen_with_status = _with_status(
+        test_generator_node,
+        lambda state: TaskStatus.GENERATING_TESTS,
+    )
+
+    # Reviewer always emits REVIEWING
+    reviewer_with_status = _with_status(
+        reviewer_node,
+        lambda state: TaskStatus.REVIEWING,
+    )
+
+    builder.add_node("solver", solver_with_status)
+    builder.add_node("code_generator", code_gen_with_status)
+    builder.add_node("test_generator", test_gen_with_status)
     builder.add_node("execute_python", execute_python_node)
     builder.add_node("execute_go", execute_go_node)
-    builder.add_node("reviewer", reviewer_node)
+    builder.add_node("reviewer", reviewer_with_status)
     builder.add_node("persist_iteration", persist_iteration_node)
 
     builder.add_edge(START, "solver")
