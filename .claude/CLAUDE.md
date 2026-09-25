@@ -172,3 +172,125 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 > Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
 > This section is managed by `generate-claude-profile` -- do not edit manually.
 <!-- GSD:profile-end -->
+
+## Repository Rules
+
+This section is hand-authored and must remain outside all GSD-managed blocks. It survives GSD regeneration and is the canonical source for repository rules.
+
+**INFRA-05 Compliance:** This file (`.claude/CLAUDE.md`) is the repository's working rules document. The repository intentionally has no root `CLAUDE.md` file (user decision, overriding D-16's default layout). All working rules, conventions, and documentation links are here and in the referenced docs.
+
+### Layout
+
+```
+.
+├── src/algorunner/              Backend: agents, graph, schemas, storage, API, worker
+├── frontend/                    React + TypeScript + Vite web UI
+├── tests/                       Pytest backend tests (async, session loop, Postgres+Redis)
+├── docs/
+│   ├── architecture/            Service topology, data paths, module map
+│   ├── development/             Testing guide, code conventions
+│   ├── product/                 PRD (user stories)
+│   └── plans/                   Implementation plan and milestones
+├── scripts/                     Live probes (verify_phase*.py) and gates (check_docs.py)
+├── docker/                      Dockerfiles and nginx config
+├── docker-compose.yml           7 services: postgres, redis, garage, api, worker, frontend, nginx
+├── .env.example                 Reference environment (copy to .env, add OPENAI_API_KEY)
+├── pyproject.toml               Dependencies, pytest config
+├── DEFERRED.md                  Acknowledged out-of-scope features
+└── README.md                    Quickstart and docs index
+```
+
+### Everyday Commands
+
+```bash
+# Setup
+uv sync                                           # Install dependencies
+docker compose up -d postgres redis garage        # Start test infra
+docker compose -p algorunner up -d --build        # Full stack in a worktree
+
+# Frontend
+npm --prefix frontend ci                          # Install dependencies
+npm --prefix frontend run dev                     # Dev server at localhost:5173 (proxied to api:8000)
+npm --prefix frontend run build                   # Vite production build
+npm --prefix frontend test                        # Unit tests (vitest, node environment)
+npm --prefix frontend run test:live               # Integration tests (needs api/worker running)
+
+# Backend
+pytest                                            # Full test suite (requires postgres/redis)
+pytest tests/api/test_events_ws.py                # Single test file
+
+# Live probes (see DEFERRED.md, testing.md for details)
+uv run python scripts/verify_phase3_live.py       # Backend submit/status/result workflow
+uv run python scripts/verify_phase4_live.py       # WebSocket streaming and gateway
+uv run python scripts/verify_executor_isolation.py # Process group signal handling
+
+# Docker & Compose
+docker compose up -d --build                      # Start full stack (api, worker, frontend, nginx)
+docker compose -p algorunner up -d                # Isolated worktree stack
+docker compose down                               # Shut down
+```
+
+### Backend Rules (D-14)
+
+1. **Async-only I/O**: All database, Redis, HTTP, subprocess operations are async. Never call blocking I/O inside `async def` functions.
+2. **SQL with `%s` placeholders**: Every SQL query uses `%s` parameter binding, never f-strings or concatenation.
+3. **Pydantic at every boundary**: API requests/responses, LangGraph state, OpenAI Structured Outputs, and storage contracts all use Pydantic v2.
+4. **Status transitions through storage writers**: Status changes only flow through `storage/tasks.py` functions. After Postgres commit, publish to Redis Pub/Sub.
+5. **Never-raise side channels**: WebSocket handlers and subscriptions never raise `Exception`; they log and return. They never swallow `CancelledError`.
+6. **Structured TaskError codes**: Errors use a code enum (ANALYSIS_FAILED, CODE_EXECUTION_FAILED, etc.) and message string.
+7. **One logger per module**: Each module has `logger = logging.getLogger(__name__)`.
+8. **Settings from `.env.example` and env vars**: No hardcoded config. All runtime values come from environment or `config.py`.
+9. **Per-agent model overrides**: Each agent can override its model via `{AGENT_NAME}_MODEL` env var.
+10. **Module docstrings cite decisions**: Every module documents which design decisions (D-01, D-02, etc.) shaped it.
+
+For the long form, see [docs/development/conventions.md](../docs/development/conventions.md) (Backend section).
+
+### Frontend Rules (D-14)
+
+1. **File layout**: `pages/` for screens, `components/` for reusable views, `lib/` and `api/` for pure logic with colocated tests.
+2. **Naming**: PascalCase for React components (`CodeBlock.tsx`), camelCase for utilities and modules (`parseEditorial.ts`).
+3. **TypeScript strict mode**: `strict: true`, no `any`, narrow `unknown` with guards.
+4. **Type mirrors in `api/types.ts`**: Backend Pydantic schemas are manually mirrored in TypeScript. Keep them in sync with Python.
+5. **`as const` unions, not enums**: Use `const TaskStatuses = [...] as const` instead of TS enum.
+6. **Context + useReducer for state**: Global task state lives in React Context with a reducer. No Redux, Zustand, or other state library.
+7. **Native fetch and WebSocket**: No axios, React Query, or socket.io. Use native APIs with simple wrapper functions.
+8. **Tailwind utilities only**: All styling is Tailwind utility classes. No custom CSS files except `index.css` (imports only).
+9. **Russian UI text**: All user-facing text in the UI is in Russian. Comments and code are English.
+10. **CodeBlock: the only raw-HTML sink**: Only `components/CodeBlock.tsx` uses `dangerouslySetInnerHTML` (for highlight.js output).
+
+For the long form, see [docs/development/conventions.md](../docs/development/conventions.md) (Frontend section).
+
+### Documentation Index
+
+Complete documentation set with cross-references:
+
+| Document | Purpose |
+|----------|---------|
+| [README.md](../README.md) | Product summary, quickstart, tests overview, docs index, unsandboxed-code warning |
+| [docs/product/prd.md](../docs/product/prd.md) | User stories, acceptance criteria, product scope (Phase 1) |
+| [docs/architecture/architecture.md](../docs/architecture/architecture.md) | Service topology, data paths, module map, deployment instructions |
+| [docs/architecture/agents.md](../docs/architecture/agents.md) | LLM agent nodes: input, process, output per agent |
+| [docs/architecture/workflow.md](../docs/architecture/workflow.md) | LangGraph state machine: node order, edges, fan-out/join logic |
+| [docs/architecture/data-model.md](../docs/architecture/data-model.md) | Pydantic schemas: task, problem, approach, solution, execution, editorial |
+| [docs/development/testing.md](../docs/development/testing.md) | Backend test fixtures, async patterns, WebSocket testing; frontend unit and integration tests; live probes |
+| [docs/development/conventions.md](../docs/development/conventions.md) | Backend code style (async, SQL, Pydantic, status transitions, logging); frontend file layout, naming, state management |
+| [docs/plans/implementation-plan.md](../docs/plans/implementation-plan.md) | 7-phase roadmap with per-phase scope, dependencies, and success criteria |
+| [DEFERRED.md](../DEFERRED.md) | Acknowledged out-of-scope features (auth, sandboxing, Kubernetes, search, etc.) with rationale and estimated phase |
+
+### Gate Script
+
+Run [`scripts/check_docs.py`](../scripts/check_docs.py) to verify INFRA-05 compliance:
+
+```bash
+uv run python scripts/check_docs.py
+```
+
+Checks:
+1. All INFRA-05 paths (architecture/*, development/*, product/prd.md, plans/implementation-plan.md), DEFERRED.md, and README.md exist and are non-empty.
+2. `.claude/CLAUDE.md` has a "## Repository Rules" heading outside all GSD markers, mentioning INFRA-05.
+3. No root `CLAUDE.md` exists.
+4. Every relative Markdown link in the docs set resolves.
+5. Every docker-compose.yml top-level service is named in architecture.md.
+6. Total docs size is 30–80 KB (target ~40–60 KB).
+
+Exit 0 and print `DOCS_OK` on success.
